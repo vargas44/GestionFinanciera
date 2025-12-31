@@ -1,0 +1,22 @@
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archivos de editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos temporales
+*.tmp
+*.log
+*.cache
+
+# Archivos de datos personales (opcional - descomenta si no quieres subir datos de ejemplo)
+# data/
+# *.json
+# *.xlsx
+

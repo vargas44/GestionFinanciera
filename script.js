@@ -1,0 +1,1508 @@
+// Data structure
+let financeData = {
+    profile: {
+        nombre: '',
+        identificacion: '',
+        empleador: ''
+    },
+    tipoCambio: 1450,
+    sueldo: {
+        bruto: 0,
+        items: []
+    },
+    deudas: [],
+    cuotas: [],
+    historial: []
+};
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadData();
+    
+    // Restaurar estado del sidebar
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar && localStorage.getItem('sidebarCollapsed') === 'true') {
+        sidebar.classList.add('collapsed');
+    }
+    
+    // Cargar tema guardado
+    const temaGuardado = localStorage.getItem('temaSeleccionado') || 'gamer';
+    aplicarTema(temaGuardado, false);
+    
+    renderAll();
+});
+
+function loadData() {
+    const saved = localStorage.getItem('financeData');
+    if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.sueldo && parsed.sueldo.items) {
+            // Asegurar que todos los items tengan categoría si vienen de versiones anteriores
+            parsed.sueldo.items.forEach(item => {
+                if (!item.categoria) {
+                    item.categoria = item.monto >= 0 ? 'ingreso' : 'deduccion';
+                }
+            });
+        }
+        // Migración para estructura muy vieja
+        if (parsed.sueldo && !parsed.sueldo.items) {
+            parsed.sueldo.items = [];
+            if (parsed.sueldo.deducciones) {
+                parsed.sueldo.deducciones.forEach(d => parsed.sueldo.items.push({...d, tipo: 'porcentaje', categoria: 'deduccion'}));
+            }
+            if (parsed.sueldo.otrosIngresos) {
+                parsed.sueldo.otrosIngresos.forEach(i => parsed.sueldo.items.push({...i, tipo: 'monto', categoria: 'ingreso'}));
+            }
+        }
+        financeData = parsed;
+    }
+}
+
+function saveData() {
+    localStorage.setItem('financeData', JSON.stringify(financeData));
+    updateDashboard();
+}
+
+function showSection(sectionId) {
+    document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.sidebar-nav a').forEach(a => a.classList.remove('active'));
+    
+    document.getElementById(sectionId).classList.add('active');
+    document.getElementById(`nav-${sectionId}`).classList.add('active');
+    
+    // Cerrar menú móvil al seleccionar una sección
+    toggleMobileMenu(false);
+    
+    if (sectionId === 'cuotas') {
+        setTimeout(updateTimelineChart, 100);
+    } else if (sectionId === 'herramientas') {
+        renderHerramientas();
+    } else if (sectionId === 'configuracion') {
+        renderConfiguracion();
+    }
+}
+
+function toggleMobileMenu(forceState) {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('mobile-menu-overlay');
+    const btn = document.getElementById('mobile-menu-btn');
+    
+    if (forceState !== undefined) {
+        // Forzar estado (cerrar)
+        if (!forceState) {
+            sidebar.classList.remove('active');
+            if (overlay) overlay.classList.remove('active');
+            if (btn) btn.textContent = '☰';
+        }
+    } else {
+        // Toggle normal
+        const isActive = sidebar.classList.contains('active');
+        if (isActive) {
+            sidebar.classList.remove('active');
+            if (overlay) overlay.classList.remove('active');
+            if (btn) btn.textContent = '☰';
+        } else {
+            sidebar.classList.add('active');
+            if (overlay) overlay.classList.add('active');
+            if (btn) btn.textContent = '✕';
+        }
+    }
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) {
+        sidebar.classList.toggle('collapsed');
+        // Guardar preferencia en localStorage
+        localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+    }
+}
+
+// Rendering functions
+function renderAll() {
+    // Actualizar display del tipo de cambio en el header
+    const tipoCambioDisplay = document.getElementById('tipo-cambio-display');
+    if (tipoCambioDisplay) {
+        tipoCambioDisplay.textContent = (financeData.tipoCambio || 1450).toLocaleString();
+    }
+    
+    renderSueldo();
+    renderDeudas();
+    renderCuotas();
+    renderHerramientas();
+    updateDashboard();
+}
+
+function renderSueldo() {
+    if (!financeData.sueldo.items) financeData.sueldo.items = [];
+    document.getElementById('input-sueldo-bruto').value = financeData.sueldo.bruto;
+    
+    const ingresosList = document.getElementById('sueldo-ingresos-list');
+    const deduccionesList = document.getElementById('sueldo-deducciones-list');
+    const fijasList = document.getElementById('sueldo-fijas-list');
+    
+    ingresosList.innerHTML = '<h3 style="font-size: 1rem; margin-bottom: 1rem; color: var(--accent-green);">Ingresos (Suman)</h3>';
+    deduccionesList.innerHTML = '<h3 style="font-size: 1rem; margin-bottom: 1rem; color: var(--accent-red);">Deducciones % (S/Bruto)</h3>';
+    fijasList.innerHTML = '<h3 style="font-size: 1rem; margin-bottom: 1rem; color: #ff7675;">Deducciones Fijas (Restan $)</h3>';
+    
+    financeData.sueldo.items.forEach((item, index) => {
+        const div = document.createElement('div');
+        div.className = 'deduccion-row';
+        div.innerHTML = `
+            <input type="text" style="flex: 2;" value="${item.nombre}" placeholder="Nombre" onchange="updateSueldoItem(${index}, 'nombre', this.value)">
+            <input type="number" style="flex: 1;" value="${Math.abs(item.monto)}" placeholder="Valor" onchange="updateSueldoItem(${index}, 'monto', this.value)">
+            <select style="background: var(--input-bg); color: white; border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 0.5rem;" onchange="updateSueldoItem(${index}, 'tipo', this.value)">
+                <option value="monto" ${item.tipo === 'monto' ? 'selected' : ''}>$ (Fijo)</option>
+                <option value="porcentaje" ${item.tipo === 'porcentaje' ? 'selected' : ''}>% (S/Bruto)</option>
+            </select>
+            <button class="btn-delete" onclick="removeSueldoItem(${index})">✕</button>
+        `;
+        
+        if (item.categoria === 'ingreso') {
+            ingresosList.appendChild(div);
+        } else if (item.categoria === 'deduccion') {
+            deduccionesList.appendChild(div);
+        } else if (item.categoria === 'fija') {
+            fijasList.appendChild(div);
+        }
+    });
+    calculateSueldo();
+}
+
+function calculateSueldo() {
+    const bruto = parseFloat(document.getElementById('input-sueldo-bruto').value) || 0;
+    financeData.sueldo.bruto = bruto;
+    
+    let ingresosFijos = 0;
+    let sumaPorcentajesIngresos = 0;
+
+    // Primero calculamos el total de ingresos (Sueldo + Bonos)
+    financeData.sueldo.items.forEach(item => {
+        const valor = Math.abs(parseFloat(item.monto) || 0);
+        if (item.categoria === 'ingreso') {
+            if (item.tipo === 'porcentaje') {
+                sumaPorcentajesIngresos += valor;
+            } else {
+                ingresosFijos += valor;
+            }
+        }
+    });
+
+    const totalIngresos = bruto + (bruto * sumaPorcentajesIngresos / 100) + ingresosFijos;
+    
+    let totalDeducciones = 0;
+
+    financeData.sueldo.items.forEach(item => {
+        const valor = Math.abs(parseFloat(item.monto) || 0);
+        
+        if (item.categoria === 'deduccion') {
+            // Deducciones % (S/Bruto) - Siempre sobre el Bruto
+            if (item.tipo === 'porcentaje') {
+                totalDeducciones += (bruto * valor) / 100;
+            } else {
+                totalDeducciones += valor;
+            }
+        } else if (item.categoria === 'fija') {
+            // Deducciones Fijas - El % se aplica sobre (Sueldo + Ingresos)
+            if (item.tipo === 'porcentaje') {
+                totalDeducciones += (totalIngresos * valor) / 100;
+            } else {
+                totalDeducciones += valor;
+            }
+        }
+    });
+
+    const neto = totalIngresos - totalDeducciones;
+    
+    document.getElementById('sueldo-neto-result').innerText = `$${Math.round(neto).toLocaleString()}`;
+    
+    // Actualizar herramientas cuando cambia el sueldo
+    calculateAguinaldo();
+    
+    saveData();
+}
+
+function updateSueldoItem(index, field, value) {
+    if (field === 'monto') {
+        value = parseFloat(value) || 0;
+        // El signo se maneja internamente en calculateSueldo según la categoría
+    }
+    financeData.sueldo.items[index][field] = value;
+    calculateSueldo();
+}
+
+function addSueldoItem(categoria) {
+    financeData.sueldo.items.push({ 
+        nombre: '', 
+        monto: 0, 
+        tipo: (categoria === 'deduccion') ? 'porcentaje' : 'monto',
+        categoria: categoria 
+    });
+    renderSueldo();
+}
+
+function removeSueldoItem(index) {
+    financeData.sueldo.items.splice(index, 1);
+    renderSueldo();
+}
+
+// Deudas
+function renderDeudas() {
+    const body = document.getElementById('deudas-body');
+    const tipoCambio = financeData.tipoCambio || 1450;
+    
+    // Actualizar el display en el header (solo lectura)
+    const tipoCambioDisplay = document.getElementById('tipo-cambio-display');
+    if (tipoCambioDisplay) tipoCambioDisplay.textContent = tipoCambio.toLocaleString();
+    
+    // Actualizar el campo editable en la sección de deudas
+    const deudasInput = document.getElementById('input-tipo-cambio');
+    if (deudasInput) deudasInput.value = tipoCambio;
+    
+    body.innerHTML = '';
+    financeData.deudas.forEach((deuda, index) => {
+        const factor = (deuda.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        const restanteARS = (deuda.total - deuda.pagado) * factor;
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="text" value="${deuda.nombre}" onchange="updateDeuda(${index}, 'nombre', this.value)"></td>
+            <td>
+                <select style="background: var(--input-bg); color: white; border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 0.4rem;" onchange="updateDeuda(${index}, 'moneda', this.value)">
+                    <option value="ARS" ${deuda.moneda === 'ARS' ? 'selected' : ''}>ARS ($)</option>
+                    <option value="USD" ${deuda.moneda === 'USD' ? 'selected' : ''}>USD (u$s)</option>
+                </select>
+            </td>
+            <td><input type="number" value="${deuda.total}" onchange="updateDeuda(${index}, 'total', this.value)"></td>
+            <td><input type="number" value="${deuda.pagado}" onchange="updateDeuda(${index}, 'pagado', this.value)"></td>
+            <td><input type="date" value="${deuda.fechaFin || ''}" onchange="updateDeuda(${index}, 'fechaFin', this.value)"></td>
+            <td style="font-weight: 600;">$${Math.round(restanteARS).toLocaleString()}</td>
+            <td style="text-align: right;"><button class="btn-delete" onclick="removeDeuda(${index})">✕</button></td>
+        `;
+        body.appendChild(tr);
+    });
+}
+
+function updateExchangeRate(value) {
+    financeData.tipoCambio = parseFloat(value) || 1450;
+    
+    // Actualizar el display en el header (solo lectura)
+    const tipoCambioDisplay = document.getElementById('tipo-cambio-display');
+    if (tipoCambioDisplay) tipoCambioDisplay.textContent = financeData.tipoCambio.toLocaleString();
+    
+    // Actualizar el campo editable en la sección de deudas
+    const deudasInput = document.getElementById('input-tipo-cambio');
+    if (deudasInput) deudasInput.value = financeData.tipoCambio;
+    
+    // Actualizar el campo en la calculadora de dólar
+    const calcDolarTC = document.getElementById('input-calc-dolar-tc');
+    if (calcDolarTC) {
+        calcDolarTC.value = financeData.tipoCambio;
+        calculateDolar();
+    }
+    
+    renderDeudas();
+    updateTimelineChart();
+    updateDashboard();
+    saveData();
+}
+
+function updateDeuda(index, field, value) {
+    if (field === 'total' || field === 'pagado') value = parseFloat(value) || 0;
+    financeData.deudas[index][field] = value;
+    renderDeudas();
+    saveData();
+    updateTimelineChart();
+}
+
+function addDeudaRow() {
+    financeData.deudas.push({ nombre: '', total: 0, pagado: 0, moneda: 'ARS', fechaFin: '' });
+    renderDeudas();
+}
+
+function removeDeuda(index) {
+    financeData.deudas.splice(index, 1);
+    renderDeudas();
+    saveData();
+}
+
+// Cuotas
+function renderCuotas() {
+    const body = document.getElementById('cuotas-body');
+    body.innerHTML = '';
+    const today = new Date();
+    
+    financeData.cuotas.forEach((cuota, index) => {
+        // Asegurar que tenga moneda por defecto
+        if (!cuota.moneda) cuota.moneda = 'ARS';
+        
+        // Cálculo automático de cuotas pagadas basado en la fecha de inicio
+        let cuotasPagas = 0;
+        if (cuota.fechaInicio) {
+            const start = new Date(cuota.fechaInicio);
+            const diffMeses = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
+            cuotasPagas = Math.max(0, diffMeses + 1);
+        }
+        
+        const cuotasRestantes = Math.max(0, cuota.cuotasTotales - cuotasPagas);
+        const factor = (cuota.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        const restanteARS = cuota.monto * cuotasRestantes * factor;
+        const fechaFin = calculateEndDate(cuota.fechaInicio, cuota.cuotasTotales);
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="text" value="${cuota.nombre}" onchange="updateCuota(${index}, 'nombre', this.value)" placeholder="Nombre"></td>
+            <td>
+                <select onchange="updateCuota(${index}, 'moneda', this.value)">
+                    <option value="ARS" ${cuota.moneda === 'ARS' ? 'selected' : ''}>ARS ($)</option>
+                    <option value="USD" ${cuota.moneda === 'USD' ? 'selected' : ''}>USD (u$s)</option>
+                </select>
+            </td>
+            <td><input type="number" value="${cuota.monto}" onchange="updateCuota(${index}, 'monto', this.value)" placeholder="0"></td>
+            <td><input type="number" value="${cuota.cuotasTotales}" onchange="updateCuota(${index}, 'cuotasTotales', this.value)" placeholder="1"></td>
+            <td><input type="date" value="${cuota.fechaInicio || ''}" onchange="updateCuota(${index}, 'fechaInicio', this.value)"></td>
+            <td class="date-display">${fechaFin}</td>
+            <td style="font-weight: 600; text-align: right;">$${Math.round(restanteARS).toLocaleString()}</td>
+            <td style="text-align: center;"><button class="btn-delete" onclick="removeCuota(${index})">✕</button></td>
+        `;
+        body.appendChild(tr);
+    });
+    updateTimelineChart();
+}
+
+function updateCuota(index, field, value) {
+    if (field === 'monto' || field === 'cuotasTotales') {
+        value = parseFloat(value) || 0;
+    }
+    financeData.cuotas[index][field] = value;
+    renderCuotas();
+    saveData();
+}
+
+function calculateEndDate(startDate, totalInstallments) {
+    if (!startDate || !totalInstallments) return '-';
+    const date = new Date(startDate);
+    // Sumar meses (totalInstallments - 1 para que el primer mes sea el de inicio)
+    date.setMonth(date.getMonth() + (parseInt(totalInstallments) - 1));
+    return date.toISOString().split('T')[0];
+}
+
+function addCuotaRow() {
+    const today = new Date().toISOString().split('T')[0];
+    financeData.cuotas.push({ nombre: '', monto: 0, cuotasTotales: 1, fechaInicio: today, moneda: 'ARS' });
+    renderCuotas();
+}
+
+let timelineChart;
+function updateTimelineChart() {
+    const canvas = document.getElementById('timelineChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    // Generar proyección de los próximos 24 meses (base)
+    const monthsToShow = 24;
+    const allMonthKeys = [];
+    const allLabels = [];
+
+    for (let i = 0; i < monthsToShow; i++) {
+        const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        allMonthKeys.push(key);
+        allLabels.push(d.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' }));
+    }
+
+    // Preparar datasets para cada ítem (cuota o deuda)
+    const datasets = [];
+    const colors = [
+        'rgba(211, 84, 0, 0.8)',   // Naranja
+        'rgba(192, 57, 43, 0.8)',  // Rojo
+        'rgba(52, 152, 219, 0.8)',  // Azul
+        'rgba(46, 204, 113, 0.8)',  // Verde
+        'rgba(155, 89, 182, 0.8)',  // Morado
+        'rgba(241, 196, 15, 0.8)',  // Amarillo
+        'rgba(230, 126, 34, 0.8)',  // Naranja claro
+        'rgba(231, 76, 60, 0.8)',   // Rojo claro
+    ];
+
+    let colorIndex = 0;
+
+    // Procesar cuotas
+    financeData.cuotas.forEach(cuota => {
+        if (!cuota.fechaInicio || !cuota.monto) return;
+        const start = new Date(cuota.fechaInicio);
+        
+        // Convertir a pesos si es necesario
+        const factor = (cuota.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        const montoEnPesos = cuota.monto * factor;
+        
+        // Calcular cuántas cuotas ya se pagaron
+        const diffMeses = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
+        const cuotasPagas = Math.max(0, diffMeses + 1);
+        
+        // Crear array de datos para este ítem (uno por mes)
+        const dataPoints = allMonthKeys.map(monthKey => {
+            // Verificar si este mes corresponde a una cuota pendiente
+            const monthDate = new Date(parseInt(monthKey.split('-')[0]), parseInt(monthKey.split('-')[1]) - 1, 1);
+            const startMonth = new Date(start.getFullYear(), start.getMonth(), 1);
+            
+            if (monthDate < startMonth) return 0;
+            
+            const cuotaIndex = (monthDate.getFullYear() - start.getFullYear()) * 12 + (monthDate.getMonth() - start.getMonth());
+            
+            if (cuotaIndex >= cuotasPagas && cuotaIndex < cuota.cuotasTotales) {
+                return montoEnPesos; // Siempre en pesos
+            }
+            return 0;
+        });
+
+        // Agregar indicador de moneda en el label
+        const monedaLabel = cuota.moneda === 'USD' ? ' (USD)' : '';
+        const label = (cuota.nombre || 'Cuota') + monedaLabel;
+
+        datasets.push({
+            label: label,
+            data: dataPoints,
+            backgroundColor: colors[colorIndex % colors.length],
+            borderColor: colors[colorIndex % colors.length].replace('0.8', '1'),
+            borderWidth: 1
+        });
+        colorIndex++;
+    });
+
+    // Procesar deudas
+    financeData.deudas.forEach(deuda => {
+        if (!deuda.fechaFin) return;
+        const fin = new Date(deuda.fechaFin);
+        const factor = (deuda.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        const montoRestante = (deuda.total - deuda.pagado) * factor;
+        
+        if (montoRestante > 0) {
+            const finMonthKey = `${fin.getFullYear()}-${String(fin.getMonth() + 1).padStart(2, '0')}`;
+            const finIndex = allMonthKeys.indexOf(finMonthKey);
+            
+            const dataPoints = allMonthKeys.map((key, index) => {
+                return (index === finIndex) ? montoRestante : 0;
+            });
+
+            // Agregar indicador de moneda en el label
+            const monedaLabel = deuda.moneda === 'USD' ? ' (USD)' : '';
+            const label = (deuda.nombre || 'Deuda') + monedaLabel;
+
+            datasets.push({
+                label: label,
+                data: dataPoints,
+                backgroundColor: colors[colorIndex % colors.length],
+                borderColor: colors[colorIndex % colors.length].replace('0.8', '1'),
+                borderWidth: 1
+            });
+            colorIndex++;
+        }
+    });
+
+    // Filtrar solo los meses que tienen datos (suma > 0)
+    const monthTotals = allMonthKeys.map((key, index) => {
+        return datasets.reduce((sum, dataset) => sum + (dataset.data[index] || 0), 0);
+    });
+
+    // Encontrar el último mes con datos
+    let lastMonthWithData = -1;
+    for (let i = monthTotals.length - 1; i >= 0; i--) {
+        if (monthTotals[i] > 0) {
+            lastMonthWithData = i;
+            break;
+        }
+    }
+
+    // Si hay datos, solo mostrar hasta el último mes con datos + 1 mes de margen
+    const monthsToDisplay = lastMonthWithData >= 0 ? lastMonthWithData + 2 : 12;
+    const labels = allLabels.slice(0, monthsToDisplay);
+    const monthKeys = allMonthKeys.slice(0, monthsToDisplay);
+
+    // Recortar los datasets para que coincidan con los meses mostrados
+    datasets.forEach(dataset => {
+        dataset.data = dataset.data.slice(0, monthsToDisplay);
+    });
+
+    if (timelineChart) {
+        timelineChart.destroy();
+    }
+
+    timelineChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    top: 20,
+                    right: 20,
+                    bottom: 20,
+                    left: 10
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    stacked: true,
+                    title: { 
+                        display: true, 
+                        text: 'Gasto Mensual Total (ARS $)', 
+                        color: '#94a3b8',
+                        padding: { bottom: 10 }
+                    },
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { 
+                        color: '#94a3b8',
+                        callback: value => '$' + value.toLocaleString(),
+                        maxTicksLimit: 8
+                    }
+                },
+                x: {
+                    stacked: true,
+                    grid: { display: false },
+                    ticks: { 
+                        color: '#94a3b8',
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: datasets.length > 0,
+                    position: 'top',
+                    align: 'start',
+                    labels: { 
+                        color: '#94a3b8', 
+                        boxWidth: 12, 
+                        padding: 10,
+                        font: { size: 10 },
+                        usePointStyle: true,
+                        pointStyle: 'rect'
+                    },
+                    onClick: (e, legendItem) => {
+                        // Permitir mostrar/ocultar datasets
+                        const index = legendItem.datasetIndex;
+                        const chart = timelineChart;
+                        const meta = chart.getDatasetMeta(index);
+                        meta.hidden = meta.hidden === null ? !chart.data.datasets[index].hidden : null;
+                        chart.update();
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => {
+                            const label = context.dataset.label || '';
+                            const value = context.raw;
+                            if (value === 0) return null; // No mostrar tooltips para valores cero
+                            
+                            // Si es una deuda en USD, mostrar también el monto original
+                            if (label.includes('(USD)')) {
+                                const nombreBase = label.replace(' (USD)', '');
+                                
+                                // Buscar en deudas
+                                const deuda = financeData.deudas.find(d => d.nombre === nombreBase);
+                                if (deuda && deuda.moneda === 'USD') {
+                                    const montoUSD = (deuda.total - deuda.pagado);
+                                    return `${label}: $${Math.round(value).toLocaleString()} ARS (u$s${montoUSD.toLocaleString()})`;
+                                }
+                                
+                                // Buscar en cuotas
+                                const cuota = financeData.cuotas.find(c => c.nombre === nombreBase);
+                                if (cuota && cuota.moneda === 'USD') {
+                                    const montoUSD = cuota.monto;
+                                    return `${label}: $${Math.round(value).toLocaleString()} ARS (u$s${montoUSD.toLocaleString()})`;
+                                }
+                            }
+                            
+                            return `${label}: $${Math.round(value).toLocaleString()}`;
+                        },
+                        footer: (tooltipItems) => {
+                            const total = tooltipItems.reduce((sum, item) => sum + (item.raw || 0), 0);
+                            if (total > 0) {
+                                return `Total del mes: $${Math.round(total).toLocaleString()} ARS`;
+                            }
+                            return null;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function removeCuota(index) {
+    financeData.cuotas.splice(index, 1);
+    renderCuotas();
+    saveData();
+}
+
+// Herramientas
+function renderHerramientas() {
+    // Inicializar el input de feriado con el sueldo bruto actual
+    const inputFeriadoBruto = document.getElementById('input-feriado-bruto');
+    if (inputFeriadoBruto && !inputFeriadoBruto.value) {
+        inputFeriadoBruto.value = financeData.sueldo.bruto || 0;
+    }
+    
+    // Inicializar tipo de cambio en calculadora de dólar
+    const inputCalcDolarTC = document.getElementById('input-calc-dolar-tc');
+    if (inputCalcDolarTC && !inputCalcDolarTC.value) {
+        inputCalcDolarTC.value = financeData.tipoCambio || 1450;
+    }
+    
+    calculateFeriado();
+    calculateAguinaldo();
+    calculateDiasLaborales();
+    calculateDolar();
+    calculatePorcentaje();
+    calculateImpuestosTarjeta();
+    renderFeriados();
+    
+    // Cargar dólar oficial al mostrar la sección
+    actualizarDolarOficial();
+}
+
+function calculateFeriado() {
+    const inputBruto = document.getElementById('input-feriado-bruto');
+    const bruto = parseFloat(inputBruto?.value) || financeData.sueldo.bruto || 0;
+    const porcentaje = parseFloat(document.getElementById('input-feriado-porcentaje')?.value) || 39;
+    const resultado = (bruto / 30) * (porcentaje / 100);
+    const resultEl = document.getElementById('feriado-result');
+    if (resultEl) {
+        resultEl.textContent = `$${Math.round(resultado).toLocaleString()}`;
+    }
+}
+
+function calculateAguinaldo() {
+    // Calcular sueldo neto igual que en calculateSueldo
+    const bruto = financeData.sueldo.bruto || 0;
+    let ingresosTotales = bruto;
+    
+    financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
+        const valor = Math.abs(item.monto);
+        if (item.tipo === 'porcentaje') ingresosTotales += (bruto * valor / 100);
+        else ingresosTotales += valor;
+    });
+
+    let deduccionesTotales = 0;
+    financeData.sueldo.items.forEach(item => {
+        const valor = Math.abs(item.monto);
+        if (item.categoria === 'deduccion') {
+            if (item.tipo === 'porcentaje') deduccionesTotales += (bruto * valor / 100);
+            else deduccionesTotales += valor;
+        } else if (item.categoria === 'fija') {
+            if (item.tipo === 'porcentaje') deduccionesTotales += (ingresosTotales * valor / 100);
+            else deduccionesTotales += valor;
+        }
+    });
+
+    const sueldoNeto = ingresosTotales - deduccionesTotales;
+    const aguinaldo = sueldoNeto * 0.5;
+    
+    const netoEl = document.getElementById('aguinaldo-sueldo-neto');
+    const aguinaldoEl = document.getElementById('aguinaldo-result');
+    
+    if (netoEl) netoEl.textContent = `$${Math.round(sueldoNeto).toLocaleString()}`;
+    if (aguinaldoEl) aguinaldoEl.textContent = `$${Math.round(aguinaldo).toLocaleString()}`;
+}
+
+function calculateDolar() {
+    const tipoCambio = parseFloat(document.getElementById('input-calc-dolar-tc')?.value) || financeData.tipoCambio || 1450;
+    const usdValue = parseFloat(document.getElementById('input-usd-ars')?.value) || 0;
+    const arsValue = parseFloat(document.getElementById('input-ars-usd')?.value) || 0;
+    
+    // Calcular USD a ARS
+    if (usdValue > 0) {
+        const resultARS = usdValue * tipoCambio;
+        const resultEl = document.getElementById('result-usd-ars');
+        if (resultEl) {
+            resultEl.textContent = `Resultado: $${Math.round(resultARS).toLocaleString()} ARS`;
+        }
+    } else {
+        const resultEl = document.getElementById('result-usd-ars');
+        if (resultEl) resultEl.textContent = 'Resultado: $0 ARS';
+    }
+    
+    // Calcular ARS a USD
+    if (arsValue > 0) {
+        const resultUSD = arsValue / tipoCambio;
+        const resultEl = document.getElementById('result-ars-usd');
+        if (resultEl) {
+            resultEl.textContent = `Resultado: $${resultUSD.toFixed(2)} USD`;
+        }
+    } else {
+        const resultEl = document.getElementById('result-ars-usd');
+        if (resultEl) resultEl.textContent = 'Resultado: $0 USD';
+    }
+}
+
+function calculatePorcentaje() {
+    const base = parseFloat(document.getElementById('input-porcentaje-base')?.value) || 0;
+    const porcentaje = parseFloat(document.getElementById('input-porcentaje-valor')?.value) || 0;
+    
+    const resultado = (base * porcentaje) / 100;
+    const total = base + resultado;
+    
+    const resultEl = document.getElementById('porcentaje-result');
+    const totalEl = document.getElementById('porcentaje-total');
+    
+    if (resultEl) {
+        resultEl.textContent = `$${Math.round(resultado).toLocaleString()}`;
+    }
+    
+    if (totalEl) {
+        totalEl.textContent = `$${Math.round(total).toLocaleString()}`;
+    }
+}
+
+function calculateImpuestosTarjeta() {
+    const montoUSD = parseFloat(document.getElementById('input-impuestos-usd')?.value) || 0;
+    const esServicioDigital = document.getElementById('checkbox-servicio-digital')?.checked || false;
+    const puedeDeducir = document.getElementById('checkbox-deducir-percepciones')?.checked || false;
+    
+    if (montoUSD <= 0) {
+        // Limpiar todos los campos
+        document.getElementById('impuesto-pais').textContent = '$0 USD';
+        document.getElementById('percepcion-ganancias').textContent = '$0 USD';
+        document.getElementById('percepcion-bienes').textContent = '$0 USD';
+        document.getElementById('iva-digital').textContent = '$0 USD';
+        document.getElementById('impuestos-total').textContent = '$0 USD';
+        document.getElementById('impuestos-ahorro').textContent = '$0 USD';
+        document.getElementById('impuestos-costo-real').textContent = '$0 USD';
+        document.getElementById('iva-container').style.display = 'none';
+        document.getElementById('ahorro-container').style.display = 'none';
+        return;
+    }
+    
+    // Calcular impuestos
+    const impuestoPAIS = montoUSD * 0.30; // 30%
+    const percepcionGanancias = montoUSD * 1.00; // 100%
+    const percepcionBienes = montoUSD * 0.25; // 25%
+    const ivaDigital = esServicioDigital ? montoUSD * 0.21 : 0; // 21% solo si es servicio digital
+    
+    // Total de impuestos
+    const totalImpuestos = impuestoPAIS + percepcionGanancias + percepcionBienes + ivaDigital;
+    
+    // Ahorro si puede deducir percepciones (Ganancias y Bienes Personales)
+    const ahorro = puedeDeducir ? (percepcionGanancias + percepcionBienes) : 0;
+    
+    // Costo real a pagar
+    const costoReal = montoUSD + totalImpuestos - ahorro;
+    
+    // Actualizar UI
+    document.getElementById('impuesto-pais').textContent = `$${impuestoPAIS.toFixed(2)} USD`;
+    document.getElementById('percepcion-ganancias').textContent = `$${percepcionGanancias.toFixed(2)} USD`;
+    document.getElementById('percepcion-bienes').textContent = `$${percepcionBienes.toFixed(2)} USD`;
+    
+    // Mostrar/ocultar IVA según corresponda
+    const ivaContainer = document.getElementById('iva-container');
+    if (esServicioDigital) {
+        ivaContainer.style.display = 'flex';
+        document.getElementById('iva-digital').textContent = `$${ivaDigital.toFixed(2)} USD`;
+    } else {
+        ivaContainer.style.display = 'none';
+    }
+    
+    document.getElementById('impuestos-total').textContent = `$${totalImpuestos.toFixed(2)} USD`;
+    
+    // Mostrar/ocultar ahorro según corresponda
+    const ahorroContainer = document.getElementById('ahorro-container');
+    if (puedeDeducir && ahorro > 0) {
+        ahorroContainer.style.display = 'flex';
+        document.getElementById('impuestos-ahorro').textContent = `$${ahorro.toFixed(2)} USD`;
+    } else {
+        ahorroContainer.style.display = 'none';
+    }
+    
+    document.getElementById('impuestos-costo-real').textContent = `$${costoReal.toFixed(2)} USD`;
+}
+
+function calculateDiasLaborales() {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const endOfYear = new Date(currentYear, 11, 31); // 31 de diciembre
+    
+    let diasLaborales = 0;
+    let currentDate = new Date(today);
+    
+    // Obtener feriados del año actual
+    const feriados = getFeriadosArgentina(currentYear);
+    const feriadosDates = feriados.map(f => {
+        const [dia, mes] = f.fecha.split('/');
+        return new Date(currentYear, parseInt(mes) - 1, parseInt(dia));
+    });
+    
+    while (currentDate <= endOfYear) {
+        const dayOfWeek = currentDate.getDay();
+        // Lunes a Viernes (1-5)
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+            // Verificar que no sea feriado
+            const esFeriado = feriadosDates.some(f => 
+                f.getDate() === currentDate.getDate() && 
+                f.getMonth() === currentDate.getMonth()
+            );
+            if (!esFeriado) {
+                diasLaborales++;
+            }
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    const diasEl = document.getElementById('dias-laborales-restantes');
+    if (diasEl) diasEl.textContent = diasLaborales;
+}
+
+function getFeriadosArgentina(anio) {
+    // Feriados fijos de Argentina
+    const feriados = [
+        { fecha: '01/01', nombre: 'Año Nuevo' },
+        { fecha: '01/03', nombre: 'Día del Veterano y de los Caídos en la Guerra de Malvinas' },
+        { fecha: '01/05', nombre: 'Día del Trabajador' },
+        { fecha: '25/05', nombre: 'Día de la Revolución de Mayo' },
+        { fecha: '20/06', nombre: 'Día de la Bandera' },
+        { fecha: '09/07', nombre: 'Día de la Independencia' },
+        { fecha: '17/08', nombre: 'Paso a la Inmortalidad del Gral. José de San Martín' },
+        { fecha: '12/10', nombre: 'Día del Respeto a la Diversidad Cultural' },
+        { fecha: '20/11', nombre: 'Día de la Soberanía Nacional' },
+        { fecha: '08/12', nombre: 'Inmaculada Concepción de María' },
+        { fecha: '25/12', nombre: 'Navidad' }
+    ];
+    
+    // Feriados móviles (aproximación - en Argentina se calculan según calendario)
+    // Carnaval (2 días, variable)
+    // Viernes Santo (variable)
+    // Día de la Memoria (24 de marzo)
+    feriados.push({ fecha: '24/03', nombre: 'Día Nacional de la Memoria por la Verdad y la Justicia' });
+    
+    // Calcular Viernes Santo (aproximación)
+    const easter = calcularPascua(anio);
+    const viernesSanto = new Date(easter);
+    viernesSanto.setDate(easter.getDate() - 2);
+    feriados.push({ 
+        fecha: `${String(viernesSanto.getDate()).padStart(2, '0')}/${String(viernesSanto.getMonth() + 1).padStart(2, '0')}`, 
+        nombre: 'Viernes Santo' 
+    });
+    
+    // Carnaval (lunes y martes antes del miércoles de ceniza)
+    const miercolesCeniza = new Date(easter);
+    miercolesCeniza.setDate(easter.getDate() - 46);
+    const martesCarnaval = new Date(miercolesCeniza);
+    martesCarnaval.setDate(miercolesCeniza.getDate() - 1);
+    const lunesCarnaval = new Date(martesCarnaval);
+    lunesCarnaval.setDate(martesCarnaval.getDate() - 1);
+    
+    feriados.push({ 
+        fecha: `${String(lunesCarnaval.getDate()).padStart(2, '0')}/${String(lunesCarnaval.getMonth() + 1).padStart(2, '0')}`, 
+        nombre: 'Carnaval (Lunes)' 
+    });
+    feriados.push({ 
+        fecha: `${String(martesCarnaval.getDate()).padStart(2, '0')}/${String(martesCarnaval.getMonth() + 1).padStart(2, '0')}`, 
+        nombre: 'Carnaval (Martes)' 
+    });
+    
+    return feriados.sort((a, b) => {
+        const [diaA, mesA] = a.fecha.split('/').map(Number);
+        const [diaB, mesB] = b.fecha.split('/').map(Number);
+        if (mesA !== mesB) return mesA - mesB;
+        return diaA - diaB;
+    });
+}
+
+function calcularPascua(anio) {
+    // Algoritmo de Meeus/Jones/Butcher para calcular Pascua
+    const a = anio % 19;
+    const b = Math.floor(anio / 100);
+    const c = anio % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const mes = Math.floor((h + l - 7 * m + 114) / 31);
+    const dia = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(anio, mes - 1, dia);
+}
+
+function renderFeriados() {
+    const anio = new Date().getFullYear();
+    const feriados = getFeriadosArgentina(anio);
+    const listEl = document.getElementById('feriados-list');
+    
+    if (!listEl) return;
+    
+    listEl.innerHTML = feriados.map(f => {
+        const [dia, mes] = f.fecha.split('/');
+        const fecha = new Date(anio, parseInt(mes) - 1, parseInt(dia));
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+        const esPasado = fecha < hoy;
+        const esHoy = fecha.getTime() === hoy.getTime();
+        
+        return `
+            <div style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color); ${esHoy ? 'background-color: rgba(52, 152, 219, 0.1); padding: 0.5rem; border-radius: 4px;' : ''}">
+                <div style="font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9rem;">${f.nombre}</div>
+                <div style="color: var(--text-secondary); font-size: 0.8rem;">
+                    ${fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    ${esPasado ? ' <span style="color: var(--text-secondary);">(Pasado)</span>' : esHoy ? ' <span style="color: var(--accent-blue);">(Hoy)</span>' : ' <span style="color: var(--accent-green);">(Próximo)</span>'}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Dólar Oficial
+async function actualizarDolarOficial() {
+    const valorEl = document.getElementById('dolar-oficial-valor');
+    const fechaEl = document.getElementById('dolar-oficial-fecha');
+    const btnEl = document.getElementById('btn-actualizar-dolar');
+    
+    if (!valorEl || !fechaEl) return;
+    
+    // Mostrar estado de carga
+    if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = 'Cargando...';
+    }
+    valorEl.textContent = 'Cargando...';
+    
+    try {
+        // Intentar con API de DolarSi
+        const response = await fetch('https://www.dolarsi.com/api/api.php?type=valoresprincipales');
+        const data = await response.json();
+        
+        // Buscar el dólar oficial (Oficial)
+        const dolarOficial = data.find(item => 
+            item.casa && (
+                item.casa.nombre === 'Oficial' || 
+                item.casa.nombre === 'Dolar Oficial' ||
+                item.casa.nombre.toLowerCase().includes('oficial')
+            )
+        );
+        
+        if (dolarOficial && dolarOficial.casa) {
+            const valorCompra = parseFloat(dolarOficial.casa.compra?.replace(',', '.') || 0);
+            const valorVenta = parseFloat(dolarOficial.casa.venta?.replace(',', '.') || 0);
+            const valorPromedio = valorCompra > 0 && valorVenta > 0 ? (valorCompra + valorVenta) / 2 : (valorCompra || valorVenta);
+            
+            if (valorPromedio > 0) {
+                valorEl.textContent = `$${Math.round(valorPromedio).toLocaleString()}`;
+                const fechaActual = new Date();
+                fechaEl.textContent = `Última actualización: ${fechaActual.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${fechaActual.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
+            } else {
+                throw new Error('Valor no disponible');
+            }
+        } else {
+            throw new Error('Dólar oficial no encontrado');
+        }
+    } catch (error) {
+        console.error('Error al obtener dólar oficial:', error);
+        
+        // Intentar con API alternativa (Bluelytics)
+        try {
+            const responseAlt = await fetch('https://api.bluelytics.com.ar/v2/latest');
+            const dataAlt = await responseAlt.json();
+            
+            if (dataAlt.oficial && dataAlt.oficial.value_avg) {
+                const valor = dataAlt.oficial.value_avg;
+                valorEl.textContent = `$${Math.round(valor).toLocaleString()}`;
+                const fechaActual = new Date();
+                fechaEl.textContent = `Última actualización: ${fechaActual.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${fechaActual.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
+            } else {
+                throw new Error('API alternativa no disponible');
+            }
+        } catch (errorAlt) {
+            console.error('Error con API alternativa:', errorAlt);
+            valorEl.textContent = 'Error al cargar';
+            fechaEl.textContent = 'No disponible';
+        }
+    } finally {
+        if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.textContent = 'Actualizar';
+        }
+    }
+}
+
+// Dashboard update
+function updateDashboard() {
+    // Profile info removed from header
+
+    // Calcular solo el total de deudas (sin incluir cuotas)
+    let totalDeudasARS = 0;
+    financeData.deudas.forEach(d => {
+        const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        totalDeudasARS += (d.total - d.pagado) * factor;
+    });
+    
+    // Recalcular sueldo neto para el dashboard con la nueva lógica corregida
+    const bruto = financeData.sueldo.bruto;
+    let ingresosTotales = bruto;
+    
+    // Primero ingresos
+    financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
+        const valor = Math.abs(item.monto);
+        if (item.tipo === 'porcentaje') ingresosTotales += (bruto * valor / 100);
+        else ingresosTotales += valor;
+    });
+
+    let deduccionesTotales = 0;
+    financeData.sueldo.items.forEach(item => {
+        const valor = Math.abs(item.monto);
+        if (item.categoria === 'deduccion') {
+            if (item.tipo === 'porcentaje') deduccionesTotales += (bruto * valor / 100);
+            else deduccionesTotales += valor;
+        } else if (item.categoria === 'fija') {
+            if (item.tipo === 'porcentaje') deduccionesTotales += (ingresosTotales * valor / 100);
+            else deduccionesTotales += valor;
+        }
+    });
+
+    const sueldoNeto = ingresosTotales - deduccionesTotales;
+
+    document.getElementById('summary-total-deudas').innerText = `$${Math.round(totalDeudasARS).toLocaleString()}`;
+    document.getElementById('summary-sueldo-neto').innerText = `$${Math.round(sueldoNeto).toLocaleString()}`;
+    document.getElementById('summary-saldo-actual').innerText = `$${Math.round(sueldoNeto - totalDeudasARS).toLocaleString()}`;
+
+    // Listas dashboard
+    const deudasDash = document.getElementById('dashboard-deudas-list');
+    deudasDash.innerHTML = financeData.deudas.slice(0, 5).map(d => {
+        const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        const montoARS = (d.total - d.pagado) * factor;
+        return `<div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+            <span style="color: var(--text-secondary);">${d.nombre} ${d.moneda === 'USD' ? '(u$s)' : ''}</span>
+            <span style="font-weight: 600;">$${Math.round(montoARS).toLocaleString()}</span>
+        </div>`;
+    }).join('');
+
+    const ingresosDash = document.getElementById('dashboard-ingresos-list');
+    ingresosDash.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+            <span style="color: var(--text-secondary);">Sueldo Base</span>
+            <span style="font-weight: 600;">$${financeData.sueldo.bruto.toLocaleString()}</span>
+        </div>
+        ${financeData.sueldo.items.filter(i => i.categoria === 'ingreso').map(i => 
+            `<div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                <span style="color: var(--text-secondary);">${i.nombre}</span>
+                <span style="font-weight: 600;">$${i.monto.toLocaleString()}</span>
+            </div>`
+        ).join('')}
+    `;
+}
+
+// Import/Export
+function exportJSON() {
+    const dataStr = JSON.stringify(financeData, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'finanzas.json';
+    a.click();
+}
+
+function importJSON() {
+    document.getElementById('import-file').click();
+}
+
+function handleFileImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const imported = JSON.parse(e.target.result);
+            financeData = imported;
+            saveData();
+            renderAll();
+            alert('Datos importados correctamente');
+        } catch (err) {
+            alert('Error al importar JSON');
+        }
+    };
+    reader.readAsText(file);
+}
+
+function importExcel() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.xlsx, .xls';
+    input.onchange = e => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = event => {
+            const data = new Uint8Array(event.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            
+            try {
+                // Asegurar estructura base
+                if (!financeData.sueldo) financeData.sueldo = { bruto: 0, items: [] };
+                if (!financeData.sueldo.items) financeData.sueldo.items = [];
+                if (!financeData.deudas) financeData.deudas = [];
+                if (!financeData.cuotas) financeData.cuotas = [];
+                if (!financeData.profile) financeData.profile = { nombre: '', identificacion: '', empleador: '' };
+
+                // Importar Perfil
+                if (workbook.Sheets['Perfil']) {
+                    const perfilRows = XLSX.utils.sheet_to_json(workbook.Sheets['Perfil']);
+                    if (perfilRows.length > 0) {
+                        const perfil = perfilRows[0];
+                        // Filtrar filas vacías (solo headers)
+                        if (perfil.Nombre || perfil.nombre || perfil.Identificacion || perfil.identificacion) {
+                            financeData.profile = {
+                                nombre: perfil.Nombre || perfil.nombre || '',
+                                identificacion: perfil.Identificacion || perfil.identificacion || '',
+                                empleador: perfil.Empleador || perfil.empleador || ''
+                            };
+                        }
+                    }
+                }
+
+                // Importar Configuración
+                if (workbook.Sheets['Configuracion']) {
+                    const configRows = XLSX.utils.sheet_to_json(workbook.Sheets['Configuracion']);
+                    if (configRows.length > 0) {
+                        const config = configRows[0];
+                        const tipoCambio = parseFloat(config['Tipo de Cambio'] || config.tipoCambio || config['tipo de cambio'] || 1450);
+                        if (!isNaN(tipoCambio)) {
+                            financeData.tipoCambio = tipoCambio;
+                        }
+                    }
+                }
+
+                // Importar Sueldo
+                if (workbook.Sheets['Sueldo']) {
+                    const sueldoRows = XLSX.utils.sheet_to_json(workbook.Sheets['Sueldo']);
+                    const brutoRow = sueldoRows.find(r => (r.Item === 'Sueldo Bruto' || r.item === 'Sueldo Bruto'));
+                    if (brutoRow) {
+                        const bruto = parseFloat(brutoRow.Monto || brutoRow.monto || 0);
+                        if (!isNaN(bruto)) {
+                            financeData.sueldo.bruto = bruto;
+                        }
+                    }
+                }
+
+                // Importar Items de Sueldo
+                if (workbook.Sheets['Sueldo Items']) {
+                    const itemsRows = XLSX.utils.sheet_to_json(workbook.Sheets['Sueldo Items']);
+                    // Filtrar filas vacías (solo headers o filas sin nombre)
+                    financeData.sueldo.items = itemsRows
+                        .filter(row => row.Nombre || row.nombre) // Solo filas con nombre
+                        .map(row => ({
+                            nombre: row.Nombre || row.nombre || '',
+                            monto: parseFloat(row.Monto || row.monto || 0),
+                            tipo: row.Tipo || row.tipo || 'monto',
+                            categoria: row.Categoria || row.categoria || 'ingreso'
+                        }))
+                        .filter(item => item.nombre !== ''); // Eliminar items sin nombre
+                }
+
+                // Importar Deudas
+                if (workbook.Sheets['Deudas']) {
+                    const deudasRows = XLSX.utils.sheet_to_json(workbook.Sheets['Deudas']);
+                    // Filtrar filas vacías
+                    financeData.deudas = deudasRows
+                        .filter(row => row.Nombre || row.nombre) // Solo filas con nombre
+                        .map(row => ({
+                            nombre: row.Nombre || row.nombre || '',
+                            total: parseFloat(row.Total || row.total || 0),
+                            pagado: parseFloat(row.Pagado || row.pagado || 0),
+                            moneda: row.Moneda || row.moneda || 'ARS',
+                            fechaFin: row['Fecha Fin'] || row.fechaFin || row['Fecha Finalizacion'] || row.fechaFinalizacion || ''
+                        }))
+                        .filter(deuda => deuda.nombre !== ''); // Eliminar deudas sin nombre
+                }
+
+                // Importar Cuotas
+                if (workbook.Sheets['Cuotas']) {
+                    const cuotasRows = XLSX.utils.sheet_to_json(workbook.Sheets['Cuotas']);
+                    // Filtrar filas vacías
+                    financeData.cuotas = cuotasRows
+                        .filter(row => row.Nombre || row.nombre) // Solo filas con nombre
+                        .map(row => ({
+                            nombre: row.Nombre || row.nombre || '',
+                            monto: parseFloat(row.Monto || row.monto || 0),
+                            cuotasTotales: parseInt(row['Total Cuotas'] || row.cuotasTotales || row['Cuotas Totales'] || 0),
+                            fechaInicio: row['Fecha Inicio'] || row.fechaInicio || '',
+                            moneda: row.Moneda || row.moneda || 'ARS'
+                        }))
+                        .filter(cuota => cuota.nombre !== ''); // Eliminar cuotas sin nombre
+                }
+
+                saveData();
+                renderAll();
+                alert('Excel importado correctamente. Todos los datos han sido cargados.');
+            } catch (err) {
+                console.error('Error al importar Excel:', err);
+                alert('Error al procesar el Excel: ' + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+    input.click();
+}
+
+function exportExcel() {
+    const wb = XLSX.utils.book_new();
+    
+    // Perfil sheet
+    if (financeData.profile) {
+        const perfilWS = XLSX.utils.json_to_sheet([{
+            Nombre: financeData.profile.nombre || '',
+            Identificacion: financeData.profile.identificacion || '',
+            Empleador: financeData.profile.empleador || ''
+        }]);
+        XLSX.utils.book_append_sheet(wb, perfilWS, "Perfil");
+    }
+
+    // Configuración sheet
+    const configWS = XLSX.utils.json_to_sheet([{
+        'Tipo de Cambio': financeData.tipoCambio || 1450
+    }]);
+    XLSX.utils.book_append_sheet(wb, configWS, "Configuracion");
+
+    // Sueldo sheet (solo el bruto)
+    const sueldoWS = XLSX.utils.json_to_sheet([
+        { Item: 'Sueldo Bruto', Monto: financeData.sueldo.bruto || 0 }
+    ]);
+    XLSX.utils.book_append_sheet(wb, sueldoWS, "Sueldo");
+
+    // Sueldo Items sheet (todos los items con sus campos completos)
+    if (financeData.sueldo.items && financeData.sueldo.items.length > 0) {
+        const itemsWS = XLSX.utils.json_to_sheet(
+            financeData.sueldo.items.map(item => ({
+                Nombre: item.nombre || '',
+                Monto: item.monto || 0,
+                Tipo: item.tipo || 'monto',
+                Categoria: item.categoria || 'ingreso'
+            }))
+        );
+        XLSX.utils.book_append_sheet(wb, itemsWS, "Sueldo Items");
+    } else {
+        // Crear hoja vacía con headers
+        const itemsWS = XLSX.utils.json_to_sheet([{
+            Nombre: '',
+            Monto: 0,
+            Tipo: 'monto',
+            Categoria: 'ingreso'
+        }]);
+        XLSX.utils.book_append_sheet(wb, itemsWS, "Sueldo Items");
+    }
+
+    // Deudas sheet (con todos los campos)
+    if (financeData.deudas && financeData.deudas.length > 0) {
+        const deudasWS = XLSX.utils.json_to_sheet(
+            financeData.deudas.map(deuda => ({
+                Nombre: deuda.nombre || '',
+                Total: deuda.total || 0,
+                Pagado: deuda.pagado || 0,
+                Moneda: deuda.moneda || 'ARS',
+                'Fecha Fin': deuda.fechaFin || ''
+            }))
+        );
+        XLSX.utils.book_append_sheet(wb, deudasWS, "Deudas");
+    } else {
+        // Crear hoja vacía con headers
+        const deudasWS = XLSX.utils.json_to_sheet([{
+            Nombre: '',
+            Total: 0,
+            Pagado: 0,
+            Moneda: 'ARS',
+            'Fecha Fin': ''
+        }]);
+        XLSX.utils.book_append_sheet(wb, deudasWS, "Deudas");
+    }
+
+    // Cuotas sheet (con todos los campos)
+    if (financeData.cuotas && financeData.cuotas.length > 0) {
+        const cuotasWS = XLSX.utils.json_to_sheet(
+            financeData.cuotas.map(cuota => ({
+                Nombre: cuota.nombre || '',
+                Monto: cuota.monto || 0,
+                'Total Cuotas': cuota.cuotasTotales || 0,
+                'Fecha Inicio': cuota.fechaInicio || '',
+                Moneda: cuota.moneda || 'ARS'
+            }))
+        );
+        XLSX.utils.book_append_sheet(wb, cuotasWS, "Cuotas");
+    } else {
+        // Crear hoja vacía con headers
+        const cuotasWS = XLSX.utils.json_to_sheet([{
+            Nombre: '',
+            Monto: 0,
+            'Total Cuotas': 0,
+            'Fecha Inicio': '',
+            Moneda: 'ARS'
+        }]);
+        XLSX.utils.book_append_sheet(wb, cuotasWS, "Cuotas");
+    }
+
+    XLSX.writeFile(wb, "finanzas.xlsx");
+}
+
+// Funciones para limpiar datos por sección
+function limpiarSueldo() {
+    if (confirm('¿Estás seguro de que deseas limpiar todos los datos de Sueldo? Esta acción no se puede deshacer.')) {
+        financeData.sueldo.bruto = 0;
+        financeData.sueldo.items = [];
+        saveData();
+        renderSueldo();
+        updateDashboard();
+        alert('Datos de Sueldo limpiados correctamente.');
+    }
+}
+
+function limpiarDeudas() {
+    if (confirm('¿Estás seguro de que deseas limpiar todas las deudas? Esta acción no se puede deshacer.')) {
+        financeData.deudas = [];
+        saveData();
+        renderDeudas();
+        updateDashboard();
+        alert('Deudas limpiadas correctamente.');
+    }
+}
+
+function limpiarCuotas() {
+    if (confirm('¿Estás seguro de que deseas limpiar todas las cuotas? Esta acción no se puede deshacer.')) {
+        financeData.cuotas = [];
+        saveData();
+        renderCuotas();
+        updateTimelineChart();
+        updateDashboard();
+        alert('Cuotas limpiadas correctamente.');
+    }
+}
+
+function limpiarHerramientas() {
+    if (confirm('¿Estás seguro de que deseas limpiar los valores de las calculadoras? Esta acción no se puede deshacer.')) {
+        // Limpiar inputs de calculadoras
+        const inputFeriadoBruto = document.getElementById('input-feriado-bruto');
+        const inputFeriadoPorcentaje = document.getElementById('input-feriado-porcentaje');
+        const inputCalcDolarTC = document.getElementById('input-calc-dolar-tc');
+        const inputUsdArs = document.getElementById('input-usd-ars');
+        const inputArsUsd = document.getElementById('input-ars-usd');
+        const inputPorcentajeBase = document.getElementById('input-porcentaje-base');
+        const inputPorcentajeValor = document.getElementById('input-porcentaje-valor');
+        const inputImpuestosUsd = document.getElementById('input-impuestos-usd');
+        const checkboxServicioDigital = document.getElementById('checkbox-servicio-digital');
+        const checkboxDeducirPercepciones = document.getElementById('checkbox-deducir-percepciones');
+        
+        if (inputFeriadoBruto) inputFeriadoBruto.value = '';
+        if (inputFeriadoPorcentaje) inputFeriadoPorcentaje.value = '139';
+        if (inputCalcDolarTC) inputCalcDolarTC.value = financeData.tipoCambio || 1450;
+        if (inputUsdArs) inputUsdArs.value = '';
+        if (inputArsUsd) inputArsUsd.value = '';
+        if (inputPorcentajeBase) inputPorcentajeBase.value = '';
+        if (inputPorcentajeValor) inputPorcentajeValor.value = '';
+        if (inputImpuestosUsd) inputImpuestosUsd.value = '';
+        if (checkboxServicioDigital) checkboxServicioDigital.checked = false;
+        if (checkboxDeducirPercepciones) checkboxDeducirPercepciones.checked = false;
+        
+        // Recalcular para mostrar valores en 0
+        calculateFeriado();
+        calculateDolar();
+        calculatePorcentaje();
+        calculateImpuestosTarjeta();
+        
+        alert('Calculadoras limpiadas correctamente.');
+    }
+}
+
+// Configuración y Temas
+function renderConfiguracion() {
+    const temaActual = localStorage.getItem('temaSeleccionado') || 'gamer';
+    document.querySelectorAll('.theme-card').forEach(card => {
+        if (card.dataset.theme === temaActual) {
+            card.classList.add('active');
+        } else {
+            card.classList.remove('active');
+        }
+    });
+}
+
+function cambiarTema(tema) {
+    aplicarTema(tema, true);
+    renderConfiguracion();
+}
+
+function aplicarTema(tema, mostrarMensaje) {
+    const body = document.body;
+    const root = document.documentElement;
+    
+    // Remover todos los temas
+    body.classList.remove('tema-gamer', 'tema-classic', 'tema-dark', 'tema-cyberpunk');
+    
+    // Aplicar nuevo tema
+    body.classList.add(`tema-${tema}`);
+    
+    // Guardar preferencia
+    localStorage.setItem('temaSeleccionado', tema);
+    
+    // Aplicar variables CSS según el tema
+    switch(tema) {
+        case 'gamer':
+            root.style.setProperty('--bg-color', '#0a0a0a');
+            root.style.setProperty('--sidebar-bg', '#0f0f0f');
+            root.style.setProperty('--card-bg', '#141414');
+            root.style.setProperty('--accent-orange', '#ff8800');
+            root.style.setProperty('--accent-cyan', '#00ffff');
+            root.style.setProperty('--accent-red', '#ff4444');
+            root.style.setProperty('--accent-green', '#00ff88');
+            root.style.setProperty('--border-color', '#333333');
+            root.style.setProperty('--glow-orange', 'rgba(255, 136, 0, 0.3)');
+            root.style.setProperty('--glow-cyan', 'rgba(0, 255, 255, 0.3)');
+            break;
+        case 'classic':
+            root.style.setProperty('--bg-color', '#0f1117');
+            root.style.setProperty('--sidebar-bg', '#121418');
+            root.style.setProperty('--card-bg', '#1a1d23');
+            root.style.setProperty('--accent-orange', '#3b82f6');
+            root.style.setProperty('--accent-cyan', '#3b82f6');
+            root.style.setProperty('--accent-red', '#ef4444');
+            root.style.setProperty('--accent-green', '#10b981');
+            root.style.setProperty('--border-color', '#2d333b');
+            root.style.setProperty('--glow-orange', 'rgba(59, 130, 246, 0.2)');
+            root.style.setProperty('--glow-cyan', 'rgba(59, 130, 246, 0.2)');
+            break;
+        case 'dark':
+            root.style.setProperty('--bg-color', '#000000');
+            root.style.setProperty('--sidebar-bg', '#0a0a0a');
+            root.style.setProperty('--card-bg', '#1a1a1a');
+            root.style.setProperty('--accent-orange', '#ffffff');
+            root.style.setProperty('--accent-cyan', '#ffffff');
+            root.style.setProperty('--accent-red', '#ff4444');
+            root.style.setProperty('--accent-green', '#00ff88');
+            root.style.setProperty('--border-color', '#333333');
+            root.style.setProperty('--glow-orange', 'rgba(255, 255, 255, 0.2)');
+            root.style.setProperty('--glow-cyan', 'rgba(255, 255, 255, 0.2)');
+            break;
+        case 'cyberpunk':
+            root.style.setProperty('--bg-color', '#0a0a0a');
+            root.style.setProperty('--sidebar-bg', '#0f0f0f');
+            root.style.setProperty('--card-bg', '#1a0033');
+            root.style.setProperty('--accent-orange', '#ff00ff');
+            root.style.setProperty('--accent-cyan', '#00ffff');
+            root.style.setProperty('--accent-red', '#ff00ff');
+            root.style.setProperty('--accent-green', '#00ff88');
+            root.style.setProperty('--border-color', '#330033');
+            root.style.setProperty('--glow-orange', 'rgba(255, 0, 255, 0.4)');
+            root.style.setProperty('--glow-cyan', 'rgba(0, 255, 255, 0.4)');
+            break;
+    }
+    
+    if (mostrarMensaje) {
+        alert(`Tema "${tema}" aplicado correctamente.`);
+    }
+}
+
