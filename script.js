@@ -316,6 +316,7 @@ function updateSueldoItem(index, field, value) {
     }
     financeData.sueldo.items[index][field] = value;
     calculateSueldo();
+    updateDashboard();
 }
 
 function addSueldoItem(categoria) {
@@ -326,6 +327,7 @@ function addSueldoItem(categoria) {
         categoria: categoria 
     });
     renderSueldo();
+    saveData();
 }
 
 function removeSueldoItem(index) {
@@ -1326,9 +1328,12 @@ function updateDashboard() {
         `;
         
         // Mostrar ingresos adicionales
-        const ingresosAdicionales = financeData.sueldo.items ? financeData.sueldo.items.filter(i => i.categoria === 'ingreso') : [];
+        const ingresosAdicionales = (financeData.sueldo.items && Array.isArray(financeData.sueldo.items)) 
+            ? financeData.sueldo.items.filter(i => i && i.categoria === 'ingreso') 
+            : [];
         if (ingresosAdicionales.length > 0) {
             ingresosAdicionales.forEach(i => {
+                if (!i) return; // Saltar items nulos o undefined
                 const valor = Math.abs(parseFloat(i.monto) || 0);
                 const tipoLabel = i.tipo === 'porcentaje' ? ` (${valor}% S/Neto)` : '';
                 ingresosHTML += `
@@ -1372,9 +1377,12 @@ function updateDashboard() {
         }
         
         // Mostrar ingresos adicionales
-        const ingresosAdicionales = financeData.sueldo.items ? financeData.sueldo.items.filter(i => i.categoria === 'ingreso') : [];
+        const ingresosAdicionales = (financeData.sueldo.items && Array.isArray(financeData.sueldo.items)) 
+            ? financeData.sueldo.items.filter(i => i && i.categoria === 'ingreso') 
+            : [];
         if (ingresosAdicionales.length > 0) {
             ingresosAdicionales.forEach(i => {
+                if (!i) return; // Saltar items nulos o undefined
                 const valor = Math.abs(parseFloat(i.monto) || 0);
                 const tipoLabel = i.tipo === 'porcentaje' ? ` (${valor}% S/Bruto)` : '';
                 ingresosHTML += `
