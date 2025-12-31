@@ -261,10 +261,15 @@ function renderDeudas() {
     
     body.innerHTML = '';
     financeData.deudas.forEach((deuda, index) => {
+        // Asegurar que existe el campo esGastoMensual
+        if (deuda.esGastoMensual === undefined) deuda.esGastoMensual = false;
+        
         const factor = (deuda.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        const restanteARS = (deuda.total - deuda.pagado) * factor;
+        const restanteARS = deuda.esGastoMensual ? deuda.total * factor : (deuda.total - (deuda.pagado || 0)) * factor;
         
         const tr = document.createElement('tr');
+        tr.className = deuda.esGastoMensual ? 'gasto-mensual' : '';
+        
         tr.innerHTML = `
             <td><input type="text" value="${deuda.nombre}" onchange="updateDeuda(${index}, 'nombre', this.value)"></td>
             <td>
@@ -274,13 +279,27 @@ function renderDeudas() {
                 </select>
             </td>
             <td><input type="number" value="${deuda.total}" onchange="updateDeuda(${index}, 'total', this.value)"></td>
-            <td><input type="number" value="${deuda.pagado}" onchange="updateDeuda(${index}, 'pagado', this.value)"></td>
-            <td><input type="date" value="${deuda.fechaFin || ''}" onchange="updateDeuda(${index}, 'fechaFin', this.value)"></td>
-            <td style="font-weight: 600;">$${Math.round(restanteARS).toLocaleString()}</td>
+            <td style="text-align: center;">
+                <input type="checkbox" ${deuda.esGastoMensual ? 'checked' : ''} onchange="toggleGastoMensual(${index}, this.checked)">
+            </td>
+            <td class="columna-pagado" style="${deuda.esGastoMensual ? 'display: none;' : ''}">
+                <input type="number" value="${deuda.pagado || 0}" onchange="updateDeuda(${index}, 'pagado', this.value)">
+            </td>
+            <td class="columna-finalizacion" style="${deuda.esGastoMensual ? 'display: none;' : ''}">
+                <input type="date" value="${deuda.fechaFin || ''}" onchange="updateDeuda(${index}, 'fechaFin', this.value)">
+            </td>
+            <td class="columna-restante" style="font-weight: 600; ${deuda.esGastoMensual ? 'display: none;' : ''}">
+                $${Math.round(restanteARS).toLocaleString()}
+            </td>
             <td style="text-align: right;"><button class="btn-delete" onclick="removeDeuda(${index})">✕</button></td>
         `;
         body.appendChild(tr);
     });
+    
+    // Las columnas se ocultan individualmente por fila, no en el header
+    // El header siempre muestra todas las columnas para mantener la estructura de la tabla
+    
+    updateDashboard();
 }
 
 function updateExchangeRate(value) {
@@ -315,8 +334,25 @@ function updateDeuda(index, field, value) {
     updateTimelineChart();
 }
 
+function toggleGastoMensual(index, esGastoMensual) {
+    financeData.deudas[index].esGastoMensual = esGastoMensual;
+    if (esGastoMensual) {
+        // Limpiar campos que no aplican para gastos mensuales
+        financeData.deudas[index].pagado = 0;
+        financeData.deudas[index].fechaFin = '';
+    }
+    renderDeudas();
+    saveData();
+    updateTimelineChart();
+    updateDashboard(); // Actualizar el dashboard para mostrar los cambios
+}
+
 function addDeudaRow() {
-    financeData.deudas.push({ nombre: '', total: 0, pagado: 0, moneda: 'ARS', fechaFin: '' });
+    // Obtener la fecha actual en formato YYYY-MM-DD
+    const today = new Date();
+    const fechaActual = today.toISOString().split('T')[0];
+    
+    financeData.deudas.push({ nombre: '', total: 0, pagado: 0, moneda: 'ARS', fechaFin: fechaActual, esGastoMensual: false });
     renderDeudas();
 }
 
@@ -474,22 +510,15 @@ function updateTimelineChart() {
 
     // Procesar deudas
     financeData.deudas.forEach(deuda => {
-        if (!deuda.fechaFin) return;
-        const fin = new Date(deuda.fechaFin);
         const factor = (deuda.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        const montoRestante = (deuda.total - deuda.pagado) * factor;
         
-        if (montoRestante > 0) {
-            const finMonthKey = `${fin.getFullYear()}-${String(fin.getMonth() + 1).padStart(2, '0')}`;
-            const finIndex = allMonthKeys.indexOf(finMonthKey);
+        // Si es gasto mensual, aparece en todos los meses
+        if (deuda.esGastoMensual) {
+            const montoMensual = deuda.total * factor;
+            const dataPoints = allMonthKeys.map(() => montoMensual);
             
-            const dataPoints = allMonthKeys.map((key, index) => {
-                return (index === finIndex) ? montoRestante : 0;
-            });
-
-            // Agregar indicador de moneda en el label
             const monedaLabel = deuda.moneda === 'USD' ? ' (USD)' : '';
-            const label = (deuda.nombre || 'Deuda') + monedaLabel;
+            const label = (deuda.nombre || 'Gasto Mensual') + monedaLabel + ' (Mensual)';
 
             datasets.push({
                 label: label,
@@ -499,6 +528,33 @@ function updateTimelineChart() {
                 borderWidth: 1
             });
             colorIndex++;
+        } else {
+            // Deuda normal con fecha de finalización
+            if (!deuda.fechaFin) return;
+            const fin = new Date(deuda.fechaFin);
+            const montoRestante = (deuda.total - (deuda.pagado || 0)) * factor;
+            
+            if (montoRestante > 0) {
+                const finMonthKey = `${fin.getFullYear()}-${String(fin.getMonth() + 1).padStart(2, '0')}`;
+                const finIndex = allMonthKeys.indexOf(finMonthKey);
+                
+                const dataPoints = allMonthKeys.map((key, index) => {
+                    return (index === finIndex) ? montoRestante : 0;
+                });
+
+                // Agregar indicador de moneda en el label
+                const monedaLabel = deuda.moneda === 'USD' ? ' (USD)' : '';
+                const label = (deuda.nombre || 'Deuda') + monedaLabel;
+
+                datasets.push({
+                    label: label,
+                    data: dataPoints,
+                    backgroundColor: colors[colorIndex % colors.length],
+                    borderColor: colors[colorIndex % colors.length].replace('0.8', '1'),
+                    borderWidth: 1
+                });
+                colorIndex++;
+            }
         }
     });
 
@@ -1039,11 +1095,17 @@ async function actualizarDolarOficial() {
 function updateDashboard() {
     // Profile info removed from header
 
-    // Calcular solo el total de deudas (sin incluir cuotas)
+    // Calcular el total de deudas (incluyendo gastos mensuales)
     let totalDeudasARS = 0;
     financeData.deudas.forEach(d => {
         const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        totalDeudasARS += (d.total - d.pagado) * factor;
+        if (d.esGastoMensual) {
+            // Para gastos mensuales, sumar el monto mensual
+            totalDeudasARS += d.total * factor;
+        } else {
+            // Para deudas normales, sumar el restante
+            totalDeudasARS += (d.total - (d.pagado || 0)) * factor;
+        }
     });
     
     // Recalcular sueldo neto para el dashboard con la nueva lógica corregida
@@ -1075,13 +1137,21 @@ function updateDashboard() {
     document.getElementById('summary-sueldo-neto').innerText = `$${Math.round(sueldoNeto).toLocaleString()}`;
     document.getElementById('summary-saldo-actual').innerText = `$${Math.round(sueldoNeto - totalDeudasARS).toLocaleString()}`;
 
-    // Listas dashboard
+    // Listas dashboard (muestra todas las deudas, incluyendo gastos mensuales)
     const deudasDash = document.getElementById('dashboard-deudas-list');
     deudasDash.innerHTML = financeData.deudas.slice(0, 5).map(d => {
         const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        const montoARS = (d.total - d.pagado) * factor;
+        let montoARS;
+        if (d.esGastoMensual) {
+            // Para gastos mensuales, mostrar el monto mensual
+            montoARS = d.total * factor;
+        } else {
+            // Para deudas normales, mostrar el restante
+            montoARS = (d.total - (d.pagado || 0)) * factor;
+        }
+        const labelMensual = d.esGastoMensual ? ' (Mensual)' : '';
         return `<div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
-            <span style="color: var(--text-secondary);">${d.nombre} ${d.moneda === 'USD' ? '(u$s)' : ''}</span>
+            <span style="color: var(--text-secondary);">${d.nombre}${labelMensual} ${d.moneda === 'USD' ? '(u$s)' : ''}</span>
             <span style="font-weight: 600;">$${Math.round(montoARS).toLocaleString()}</span>
         </div>`;
     }).join('');
