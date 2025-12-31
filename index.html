@@ -31,8 +31,8 @@
                     <span class="nav-text">Dashboard</span>
                 </a></li>
                 <li><a href="#" onclick="showSection('sueldo')" id="nav-sueldo">
-                    <span class="nav-icon"><img src="https://img.icons8.com/external-kosonicon-outline-kosonicon/64/external-finance-insurance-kosonicon-outline-kosonicon.png" alt="Sueldo" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
-                    <span class="nav-text">Sueldo</span>
+                    <span class="nav-icon"><img src="https://img.icons8.com/external-kosonicon-outline-kosonicon/64/external-finance-insurance-kosonicon-outline-kosonicon.png" alt="Ingresos" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
+                    <span class="nav-text">Ingresos</span>
                 </a></li>
                 <li><a href="#" onclick="showSection('deudas')" id="nav-deudas">
                     <span class="nav-icon"><img src="https://img.icons8.com/ios/100/bank-card-back-side--v1.png" alt="Deudas" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
@@ -93,8 +93,8 @@
                         <div class="stat-value large" id="summary-total-deudas">$0</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Sueldo Neto</div>
-                        <div class="stat-value large" id="summary-sueldo-neto">$0</div>
+                        <div class="stat-label">Ingresos</div>
+                        <div class="stat-value large" id="summary-ingresos">$0</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Saldo Actual</div>
@@ -108,7 +108,18 @@
                             <div style="width: 4px; height: 24px; background-color: var(--accent-red); border-radius: 2px;"></div>
                             <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Deudas Principales</h3>
                         </div>
-                        <div id="dashboard-deudas-list"></div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th>Moneda</th>
+                                    <th>Total</th>
+                                    <th>Tipo</th>
+                                    <th>Restante (ARS)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dashboard-deudas-list"></tbody>
+                        </table>
                     </div>
                     <div class="main-card">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
@@ -124,39 +135,69 @@
             <section id="sueldo" class="content-section">
                 <div class="header-section" style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
-                        <h2>Cálculo de Sueldo</h2>
+                        <h2>Gestión de Ingresos</h2>
                         <p>Gestiona tus ingresos y deducciones mensuales.</p>
                     </div>
-                    <button onclick="limpiarSueldo()" class="btn-clear" title="Limpiar datos de Sueldo">
+                    <button onclick="limpiarSueldo()" class="btn-clear" title="Limpiar datos de Ingresos">
                         <img src="https://img.icons8.com/ios/100/full-trash--v1.png" alt="Limpiar" style="width: 16px; height: 16px; filter: brightness(0) invert(1); margin-right: 0.5rem;" />
                         Limpiar
                     </button>
                 </div>
                 <div class="main-card">
-                    <div class="form-group">
+                    <div class="form-group" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                        <input type="checkbox" id="checkbox-sueldo-neto" onchange="toggleSueldoNeto(this.checked)" style="width: 20px; height: 20px; cursor: pointer;">
+                        <label for="checkbox-sueldo-neto" style="margin: 0; cursor: pointer; font-weight: 600;">Sueldo Neto (Ingresar directamente)</label>
+                    </div>
+                    
+                    <div id="sueldo-bruto-container" class="form-group">
                         <label>Sueldo Bruto (Base para %)</label>
                         <input type="number" id="input-sueldo-bruto" oninput="calculateSueldo()" placeholder="0.00">
                     </div>
                     
-                    <div id="sueldo-ingresos-list">
-                        <!-- Items que suman -->
+                    <div id="sueldo-neto-container" class="form-group" style="display: none;">
+                        <label>Sueldo Neto</label>
+                        <input type="number" id="input-sueldo-neto-directo" oninput="updateSueldoNetoDirecto(this.value)" placeholder="0.00">
                     </div>
-                    <button onclick="addSueldoItem('ingreso')" class="btn-add" style="color: var(--accent-green); border-color: var(--accent-green); border: 1px solid;">+ Añadir Ingreso</button>
+                    
+                    <div id="secciones-calculo-sueldo">
+                        <div id="conceptos-suman-basico-card" style="margin-top: 2rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                                <div style="width: 4px; height: 24px; background-color: var(--accent-green); border-radius: 2px;"></div>
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600; color: var(--accent-green);">Conceptos que se suman al básico</h3>
+                            </div>
+                            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Bono de conectividad, feriados, horas extras, etc.</p>
+                            <div id="conceptos-suman-list">
+                                <!-- Items que suman al básico -->
+                            </div>
+                            <button onclick="addConceptoSuman()" class="btn-add" style="color: var(--accent-green); border-color: var(--accent-green); border: 1px solid; margin-top: 1rem;">+ Añadir Concepto</button>
+                        </div>
 
-                    <div id="sueldo-deducciones-list" style="margin-top: 2rem;">
-                        <!-- Items que restan (Porcentajes) -->
-                    </div>
-                    <button onclick="addSueldoItem('deduccion')" class="btn-add" style="color: var(--accent-red); border-color: var(--accent-red); border: 1px solid;">+ Añadir Deducción %</button>
+                        <div id="sueldo-deducciones-list" style="margin-top: 2rem;">
+                            <!-- Items que restan (Porcentajes) -->
+                        </div>
+                        <button onclick="addSueldoItem('deduccion')" class="btn-add" style="color: var(--accent-red); border-color: var(--accent-red); border: 1px solid;">+ Añadir Deducción %</button>
 
-                    <div id="sueldo-fijas-list" style="margin-top: 2rem;">
-                        <!-- Deducciones fijas -->
+                        <div id="sueldo-fijas-list" style="margin-top: 2rem;">
+                            <!-- Deducciones fijas -->
+                        </div>
+                        <button onclick="addSueldoItem('fija')" class="btn-add" style="color: #ff7675; border-color: #ff7675; border: 1px solid;">+ Añadir Deducción Fija ($)</button>
                     </div>
-                    <button onclick="addSueldoItem('fija')" class="btn-add" style="color: #ff7675; border-color: #ff7675; border: 1px solid;">+ Añadir Deducción Fija ($)</button>
 
                     <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); text-align: right;">
                         <span style="color: var(--text-secondary);">Neto a cobrar:</span>
                         <div class="stat-value large" id="sueldo-neto-result">$0</div>
                     </div>
+                </div>
+                
+                <div class="main-card" id="ingresos-adicionales-card" style="margin-top: 2rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                        <div style="width: 4px; height: 24px; background-color: var(--accent-green); border-radius: 2px;"></div>
+                        <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600; color: var(--accent-green);">Ingresos Adicionales</h3>
+                    </div>
+                    <div id="sueldo-ingresos-list">
+                        <!-- Items que suman -->
+                    </div>
+                    <button onclick="addSueldoItem('ingreso')" class="btn-add" style="color: var(--accent-green); border-color: var(--accent-green); border: 1px solid; margin-top: 1rem;">+ Añadir Ingreso</button>
                 </div>
             </section>
 

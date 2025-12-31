@@ -8,7 +8,8 @@ let financeData = {
     tipoCambio: 1450,
     sueldo: {
         bruto: 0,
-        items: []
+        items: [],
+        conceptosSuman: [] // Conceptos que se suman al básico (bono, feriado, etc.)
     },
     deudas: [],
     cuotas: [],
@@ -134,14 +135,30 @@ function renderAll() {
 }
 
 function renderSueldo() {
+    if (!financeData.sueldo) financeData.sueldo = { bruto: 0, items: [], sueldoNetoDirecto: false, netoDirecto: 0 };
     if (!financeData.sueldo.items) financeData.sueldo.items = [];
-    document.getElementById('input-sueldo-bruto').value = financeData.sueldo.bruto;
+    
+    // Restaurar estado del checkbox
+    const checkbox = document.getElementById('checkbox-sueldo-neto');
+    if (checkbox) {
+        checkbox.checked = financeData.sueldo.sueldoNetoDirecto || false;
+        toggleSueldoNeto(financeData.sueldo.sueldoNetoDirecto || false);
+    }
+    
+    if (financeData.sueldo.sueldoNetoDirecto) {
+        const netoInput = document.getElementById('input-sueldo-neto-directo');
+        if (netoInput) netoInput.value = financeData.sueldo.netoDirecto || 0;
+        updateSueldoNetoDirecto(financeData.sueldo.netoDirecto || 0);
+    } else {
+        const brutoInput = document.getElementById('input-sueldo-bruto');
+        if (brutoInput) brutoInput.value = financeData.sueldo.bruto;
+    }
     
     const ingresosList = document.getElementById('sueldo-ingresos-list');
     const deduccionesList = document.getElementById('sueldo-deducciones-list');
     const fijasList = document.getElementById('sueldo-fijas-list');
     
-    ingresosList.innerHTML = '<h3 style="font-size: 1rem; margin-bottom: 1rem; color: var(--accent-green);">Ingresos (Suman)</h3>';
+    ingresosList.innerHTML = '';
     deduccionesList.innerHTML = '<h3 style="font-size: 1rem; margin-bottom: 1rem; color: var(--accent-red);">Deducciones % (S/Bruto)</h3>';
     fijasList.innerHTML = '<h3 style="font-size: 1rem; margin-bottom: 1rem; color: #ff7675;">Deducciones Fijas (Restan $)</h3>';
     
@@ -166,29 +183,99 @@ function renderSueldo() {
             fijasList.appendChild(div);
         }
     });
+    
+    // Renderizar conceptos que se suman al básico
+    const conceptosList = document.getElementById('conceptos-suman-list');
+    if (conceptosList) {
+        conceptosList.innerHTML = '';
+        if (financeData.sueldo.conceptosSuman) {
+            financeData.sueldo.conceptosSuman.forEach((concepto, index) => {
+                const div = document.createElement('div');
+                div.className = 'deduccion-row';
+                div.innerHTML = `
+                    <input type="text" style="flex: 2;" value="${concepto.nombre}" placeholder="Nombre (ej: Bono conectividad)" onchange="updateConceptoSuman(${index}, 'nombre', this.value)">
+                    <input type="number" style="flex: 1;" value="${Math.abs(concepto.monto)}" placeholder="Monto" onchange="updateConceptoSuman(${index}, 'monto', this.value)">
+                    <button class="btn-delete" onclick="removeConceptoSuman(${index})">✕</button>
+                `;
+                conceptosList.appendChild(div);
+            });
+        }
+    }
+    
     calculateSueldo();
 }
 
+function toggleSueldoNeto(esNetoDirecto) {
+    financeData.sueldo.sueldoNetoDirecto = esNetoDirecto;
+    
+    const brutoContainer = document.getElementById('sueldo-bruto-container');
+    const netoContainer = document.getElementById('sueldo-neto-container');
+    const seccionesCalculo = document.getElementById('secciones-calculo-sueldo');
+    const ingresosCard = document.getElementById('ingresos-adicionales-card');
+    const conceptosCard = document.getElementById('conceptos-suman-basico-card');
+    
+    if (esNetoDirecto) {
+        // Ocultar sueldo bruto y secciones de cálculo (incluye conceptos dentro)
+        if (brutoContainer) brutoContainer.style.display = 'none';
+        if (seccionesCalculo) seccionesCalculo.style.display = 'none';
+        // NO ocultar la card de ingresos adicionales (se mantiene visible)
+        // Mostrar sueldo neto directo
+        if (netoContainer) netoContainer.style.display = 'block';
+        
+        // Inicializar el valor si no existe
+        if (!financeData.sueldo.netoDirecto) {
+            financeData.sueldo.netoDirecto = 0;
+        }
+        document.getElementById('input-sueldo-neto-directo').value = financeData.sueldo.netoDirecto;
+        updateSueldoNetoDirecto(financeData.sueldo.netoDirecto);
+    } else {
+        // Mostrar sueldo bruto y secciones de cálculo (incluye conceptos dentro)
+        if (brutoContainer) brutoContainer.style.display = 'block';
+        if (seccionesCalculo) seccionesCalculo.style.display = 'block';
+        // Mostrar también la card de ingresos adicionales
+        if (ingresosCard) ingresosCard.style.display = 'block';
+        // Ocultar sueldo neto directo
+        if (netoContainer) netoContainer.style.display = 'none';
+        
+        // Recalcular con el sueldo bruto
+        calculateSueldo();
+    }
+    
+    saveData();
+    updateDashboard();
+}
+
+function updateSueldoNetoDirecto(value) {
+    financeData.sueldo.netoDirecto = parseFloat(value) || 0;
+    document.getElementById('sueldo-neto-result').innerText = `$${Math.round(financeData.sueldo.netoDirecto).toLocaleString()}`;
+    saveData();
+    updateDashboard();
+}
+
 function calculateSueldo() {
+    // Si está en modo sueldo neto directo, no calcular
+    if (financeData.sueldo.sueldoNetoDirecto) {
+        return;
+    }
+    
     const bruto = parseFloat(document.getElementById('input-sueldo-bruto').value) || 0;
     financeData.sueldo.bruto = bruto;
     
-    let ingresosFijos = 0;
-    let sumaPorcentajesIngresos = 0;
-
-    // Primero calculamos el total de ingresos (Sueldo + Bonos)
-    financeData.sueldo.items.forEach(item => {
-        const valor = Math.abs(parseFloat(item.monto) || 0);
-        if (item.categoria === 'ingreso') {
-            if (item.tipo === 'porcentaje') {
-                sumaPorcentajesIngresos += valor;
-            } else {
-                ingresosFijos += valor;
-            }
-        }
-    });
-
-    const totalIngresos = bruto + (bruto * sumaPorcentajesIngresos / 100) + ingresosFijos;
+    // Sumar conceptos que se suman al básico (bono, feriado, etc.)
+    let conceptosSumanTotal = 0;
+    if (financeData.sueldo.conceptosSuman) {
+        financeData.sueldo.conceptosSuman.forEach(concepto => {
+            conceptosSumanTotal += parseFloat(concepto.monto) || 0;
+        });
+    }
+    
+    // El sueldo base ahora incluye los conceptos que se suman
+    const brutoConConceptos = bruto + conceptosSumanTotal;
+    
+    // Los ingresos adicionales NO se suman al cálculo del sueldo neto
+    // Solo se usan para el dashboard y reportes, pero no afectan el cálculo
+    // El total de ingresos es solo: bruto + conceptos que se suman al básico
+    const totalIngresos = brutoConConceptos;
     
     let totalDeducciones = 0;
 
@@ -196,9 +283,9 @@ function calculateSueldo() {
         const valor = Math.abs(parseFloat(item.monto) || 0);
         
         if (item.categoria === 'deduccion') {
-            // Deducciones % (S/Bruto) - Siempre sobre el Bruto
+            // Deducciones % (S/Bruto) - Siempre sobre el Bruto con conceptos
             if (item.tipo === 'porcentaje') {
-                totalDeducciones += (bruto * valor) / 100;
+                totalDeducciones += (brutoConConceptos * valor) / 100;
             } else {
                 totalDeducciones += valor;
             }
@@ -244,6 +331,29 @@ function addSueldoItem(categoria) {
 function removeSueldoItem(index) {
     financeData.sueldo.items.splice(index, 1);
     renderSueldo();
+}
+
+// Conceptos que se suman al básico
+function addConceptoSuman() {
+    if (!financeData.sueldo.conceptosSuman) financeData.sueldo.conceptosSuman = [];
+    financeData.sueldo.conceptosSuman.push({ nombre: '', monto: 0 });
+    renderSueldo();
+    saveData();
+}
+
+function updateConceptoSuman(index, field, value) {
+    if (field === 'monto') {
+        value = parseFloat(value) || 0;
+    }
+    financeData.sueldo.conceptosSuman[index][field] = value;
+    renderSueldo();
+    saveData();
+}
+
+function removeConceptoSuman(index) {
+    financeData.sueldo.conceptosSuman.splice(index, 1);
+    renderSueldo();
+    saveData();
 }
 
 // Deudas
@@ -1108,67 +1218,176 @@ function updateDashboard() {
         }
     });
     
-    // Recalcular sueldo neto para el dashboard con la nueva lógica corregida
-    const bruto = financeData.sueldo.bruto;
-    let ingresosTotales = bruto;
+    // Calcular total de ingresos para el dashboard
+    let totalIngresos = 0;
+    let sueldoNeto = 0;
     
-    // Primero ingresos
-    financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
-        const valor = Math.abs(item.monto);
-        if (item.tipo === 'porcentaje') ingresosTotales += (bruto * valor / 100);
-        else ingresosTotales += valor;
-    });
-
-    let deduccionesTotales = 0;
-    financeData.sueldo.items.forEach(item => {
-        const valor = Math.abs(item.monto);
-        if (item.categoria === 'deduccion') {
-            if (item.tipo === 'porcentaje') deduccionesTotales += (bruto * valor / 100);
-            else deduccionesTotales += valor;
-        } else if (item.categoria === 'fija') {
-            if (item.tipo === 'porcentaje') deduccionesTotales += (ingresosTotales * valor / 100);
-            else deduccionesTotales += valor;
+    if (financeData.sueldo.sueldoNetoDirecto) {
+        // Si está en modo sueldo neto directo
+        sueldoNeto = financeData.sueldo.netoDirecto || 0;
+        // Para ingresos, sumar el neto directo + ingresos adicionales
+        totalIngresos = sueldoNeto;
+        if (financeData.sueldo.items) {
+            financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
+                const valor = Math.abs(parseFloat(item.monto) || 0);
+                if (item.tipo === 'monto') {
+                    totalIngresos += valor;
+                } else if (item.tipo === 'porcentaje') {
+                    totalIngresos += (sueldoNeto * valor / 100);
+                }
+            });
         }
-    });
+    } else {
+        // Calcular normalmente
+        const bruto = financeData.sueldo.bruto || 0;
+        
+        // Sumar conceptos que se suman al básico
+        let conceptosSumanTotal = 0;
+        if (financeData.sueldo.conceptosSuman) {
+            financeData.sueldo.conceptosSuman.forEach(concepto => {
+                conceptosSumanTotal += parseFloat(concepto.monto) || 0;
+            });
+        }
+        const brutoConConceptos = bruto + conceptosSumanTotal;
+        
+        // Total de ingresos incluye: bruto + conceptos + ingresos adicionales
+        totalIngresos = brutoConConceptos;
+        if (financeData.sueldo.items) {
+            financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
+                const valor = Math.abs(parseFloat(item.monto) || 0);
+                if (item.tipo === 'monto') {
+                    totalIngresos += valor;
+                } else if (item.tipo === 'porcentaje') {
+                    totalIngresos += (brutoConConceptos * valor / 100);
+                }
+            });
+        }
 
-    const sueldoNeto = ingresosTotales - deduccionesTotales;
+        // Calcular sueldo neto (para el saldo actual)
+        let ingresosParaNeto = brutoConConceptos; // Sin ingresos adicionales
+        let deduccionesTotales = 0;
+        financeData.sueldo.items.forEach(item => {
+            const valor = Math.abs(item.monto);
+            if (item.categoria === 'deduccion') {
+                if (item.tipo === 'porcentaje') deduccionesTotales += (brutoConConceptos * valor / 100);
+                else deduccionesTotales += valor;
+            } else if (item.categoria === 'fija') {
+                if (item.tipo === 'porcentaje') deduccionesTotales += (ingresosParaNeto * valor / 100);
+                else deduccionesTotales += valor;
+            }
+        });
+
+        sueldoNeto = ingresosParaNeto - deduccionesTotales;
+    }
 
     document.getElementById('summary-total-deudas').innerText = `$${Math.round(totalDeudasARS).toLocaleString()}`;
-    document.getElementById('summary-sueldo-neto').innerText = `$${Math.round(sueldoNeto).toLocaleString()}`;
+    document.getElementById('summary-ingresos').innerText = `$${Math.round(totalIngresos).toLocaleString()}`;
     document.getElementById('summary-saldo-actual').innerText = `$${Math.round(sueldoNeto - totalDeudasARS).toLocaleString()}`;
 
-    // Listas dashboard (muestra todas las deudas, incluyendo gastos mensuales)
+    // Tabla dashboard (muestra todas las deudas, incluyendo gastos mensuales)
     const deudasDash = document.getElementById('dashboard-deudas-list');
-    deudasDash.innerHTML = financeData.deudas.slice(0, 5).map(d => {
-        const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        let montoARS;
-        if (d.esGastoMensual) {
-            // Para gastos mensuales, mostrar el monto mensual
-            montoARS = d.total * factor;
-        } else {
-            // Para deudas normales, mostrar el restante
-            montoARS = (d.total - (d.pagado || 0)) * factor;
-        }
-        const labelMensual = d.esGastoMensual ? ' (Mensual)' : '';
-        return `<div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
-            <span style="color: var(--text-secondary);">${d.nombre}${labelMensual} ${d.moneda === 'USD' ? '(u$s)' : ''}</span>
-            <span style="font-weight: 600;">$${Math.round(montoARS).toLocaleString()}</span>
-        </div>`;
-    }).join('');
+    if (financeData.deudas.length === 0) {
+        deudasDash.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No hay deudas registradas</td></tr>';
+    } else {
+        deudasDash.innerHTML = financeData.deudas.map(d => {
+            const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+            let montoARS;
+            let totalARS = d.total * factor;
+            if (d.esGastoMensual) {
+                // Para gastos mensuales, mostrar el monto mensual
+                montoARS = d.total * factor;
+            } else {
+                // Para deudas normales, mostrar el restante
+                montoARS = (d.total - (d.pagado || 0)) * factor;
+            }
+            const tipo = d.esGastoMensual ? 'Gasto Mensual' : 'Deuda';
+            return `<tr>
+                <td>${d.nombre}</td>
+                <td>${d.moneda === 'USD' ? 'USD' : 'ARS'}</td>
+                <td>$${Math.round(totalARS).toLocaleString()}</td>
+                <td>${tipo}</td>
+                <td style="font-weight: 600;">$${Math.round(montoARS).toLocaleString()}</td>
+            </tr>`;
+        }).join('');
+    }
 
     const ingresosDash = document.getElementById('dashboard-ingresos-list');
-    ingresosDash.innerHTML = `
-        <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
-            <span style="color: var(--text-secondary);">Sueldo Base</span>
-            <span style="font-weight: 600;">$${financeData.sueldo.bruto.toLocaleString()}</span>
-        </div>
-        ${financeData.sueldo.items.filter(i => i.categoria === 'ingreso').map(i => 
-            `<div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
-                <span style="color: var(--text-secondary);">${i.nombre}</span>
-                <span style="font-weight: 600;">$${i.monto.toLocaleString()}</span>
-            </div>`
-        ).join('')}
-    `;
+    
+    let ingresosHTML = '';
+    
+    if (financeData.sueldo.sueldoNetoDirecto) {
+        // Si está en modo sueldo neto directo, mostrar el sueldo neto como base
+        const sueldoNeto = financeData.sueldo.netoDirecto || 0;
+        ingresosHTML = `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                <span style="color: var(--text-secondary);">Sueldo Base</span>
+                <span style="font-weight: 600;">$${Math.round(sueldoNeto).toLocaleString()}</span>
+            </div>
+        `;
+        
+        // Mostrar ingresos adicionales
+        const ingresosAdicionales = financeData.sueldo.items ? financeData.sueldo.items.filter(i => i.categoria === 'ingreso') : [];
+        if (ingresosAdicionales.length > 0) {
+            ingresosAdicionales.forEach(i => {
+                const valor = Math.abs(parseFloat(i.monto) || 0);
+                const tipoLabel = i.tipo === 'porcentaje' ? ` (${valor}% S/Neto)` : '';
+                ingresosHTML += `
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <span style="color: var(--text-secondary);">${i.nombre || 'Ingreso'}${tipoLabel}</span>
+                        <span style="font-weight: 600;">$${Math.round(valor).toLocaleString()}</span>
+                    </div>
+                `;
+            });
+        }
+    } else {
+        // Calcular sueldo bruto con conceptos
+        const bruto = financeData.sueldo.bruto || 0;
+        let conceptosSumanTotal = 0;
+        if (financeData.sueldo.conceptosSuman) {
+            financeData.sueldo.conceptosSuman.forEach(concepto => {
+                conceptosSumanTotal += parseFloat(concepto.monto) || 0;
+            });
+        }
+        const brutoConConceptos = bruto + conceptosSumanTotal;
+        
+        ingresosHTML = `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                <span style="color: var(--text-secondary);">Sueldo Base</span>
+                <span style="font-weight: 600;">$${Math.round(bruto).toLocaleString()}</span>
+            </div>
+        `;
+        
+        // Mostrar conceptos que se suman al básico
+        if (financeData.sueldo.conceptosSuman && financeData.sueldo.conceptosSuman.length > 0) {
+            financeData.sueldo.conceptosSuman.forEach(concepto => {
+                if (concepto.nombre && concepto.monto) {
+                    ingresosHTML += `
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                            <span style="color: var(--text-secondary);">${concepto.nombre}</span>
+                            <span style="font-weight: 600;">$${Math.round(concepto.monto).toLocaleString()}</span>
+                        </div>
+                    `;
+                }
+            });
+        }
+        
+        // Mostrar ingresos adicionales
+        const ingresosAdicionales = financeData.sueldo.items ? financeData.sueldo.items.filter(i => i.categoria === 'ingreso') : [];
+        if (ingresosAdicionales.length > 0) {
+            ingresosAdicionales.forEach(i => {
+                const valor = Math.abs(parseFloat(i.monto) || 0);
+                const tipoLabel = i.tipo === 'porcentaje' ? ` (${valor}% S/Bruto)` : '';
+                ingresosHTML += `
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <span style="color: var(--text-secondary);">${i.nombre || 'Ingreso'}${tipoLabel}</span>
+                        <span style="font-weight: 600;">$${Math.round(valor).toLocaleString()}</span>
+                    </div>
+                `;
+            });
+        }
+    }
+    
+    ingresosDash.innerHTML = ingresosHTML;
 }
 
 // Import/Export
