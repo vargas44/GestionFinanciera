@@ -89,7 +89,7 @@
                 
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-label">Total Deudas</div>
+                        <div class="stat-label">Deudas Mensual</div>
                         <div class="stat-value large" id="summary-total-deudas">$0</div>
                     </div>
                     <div class="stat-card">
@@ -102,24 +102,58 @@
                     </div>
                 </div>
 
+                <div class="stats-grid" style="margin-top: 1.5rem;">
+                    <div class="stat-card">
+                        <div class="stat-label">Deudas Anual</div>
+                        <div class="stat-value large" id="summary-deudas-anual">$0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Ingreso de Sueldo Anual</div>
+                        <div class="stat-value large" id="summary-ingreso-anual">$0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Saldo Total Después de Resto Anual</div>
+                        <div class="stat-value large" id="summary-saldo-anual">$0</div>
+                    </div>
+                </div>
+
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                    <div class="main-card">
-                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
-                            <div style="width: 4px; height: 24px; background-color: var(--accent-red); border-radius: 2px;"></div>
-                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Deudas Principales</h3>
+                    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                        <!-- Deudas Mensuales -->
+                        <div class="main-card">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                                <div style="width: 4px; height: 24px; background-color: var(--accent-orange); border-radius: 2px;"></div>
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Deudas Mensuales</h3>
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Nombre</th>
+                                        <th>Moneda</th>
+                                        <th>Monto Mensual</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dashboard-deudas-mensuales-list"></tbody>
+                            </table>
                         </div>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Nombre</th>
-                                    <th>Moneda</th>
-                                    <th>Total</th>
-                                    <th>Tipo</th>
-                                    <th>Restante (ARS)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="dashboard-deudas-list"></tbody>
-                        </table>
+                        <!-- Deudas Anuales (Cuotas) -->
+                        <div class="main-card">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+                                <div style="width: 4px; height: 24px; background-color: var(--accent-red); border-radius: 2px;"></div>
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Deudas Anuales</h3>
+                            </div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Nombre</th>
+                                        <th>Moneda</th>
+                                        <th>Total</th>
+                                        <th>Restante (ARS)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dashboard-deudas-anuales-list"></tbody>
+                            </table>
+                        </div>
                     </div>
                     <div class="main-card">
                         <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
@@ -213,15 +247,17 @@
                         Limpiar
                     </button>
                 </div>
-                <div class="main-card" style="padding: 0;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; padding: 1rem; background: var(--card-bg); border-radius: 0.75rem; border: 1px solid var(--border-color);">
+                    <label style="color: var(--text-secondary); font-size: 0.9rem;">Tipo de Cambio (1 USD = ARS):</label>
+                    <input type="number" id="input-tipo-cambio" style="width: 120px;" oninput="updateExchangeRate(this.value)" placeholder="1450">
+                </div>
+
+                <!-- Card de Gastos en Cuotas -->
+                <div class="main-card" style="padding: 0; margin-bottom: 2rem;">
                     <div style="padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color);">
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
                             <div style="width: 4px; height: 24px; background-color: var(--accent-red); border-radius: 2px;"></div>
-                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Deudas Principales</h3>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 1rem;">
-                            <label style="color: var(--text-secondary); font-size: 0.9rem;">Tipo de Cambio (1 USD = ARS):</label>
-                            <input type="number" id="input-tipo-cambio" style="width: 120px;" oninput="updateExchangeRate(this.value)" placeholder="1450">
+                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Gastos en Cuotas</h3>
                         </div>
                     </div>
                     <table>
@@ -229,18 +265,43 @@
                             <tr>
                                 <th>Nombre</th>
                                 <th>Moneda</th>
-                                <th>A Pagar</th>
-                                <th>Gasto Mensual</th>
-                                <th class="columna-pagado">Pagado</th>
-                                <th class="columna-finalizacion">Finalización</th>
-                                <th class="columna-restante">Restante (ARS)</th>
+                                <th>Monto por Mes</th>
+                                <th>Total de Cuotas</th>
+                                <th>Inicio a Pagar</th>
+                                <th>Finalización</th>
+                                <th>Restante (ARS)</th>
+                                <th>Total</th>
                                 <th></th>
                             </tr>
                         </thead>
-                        <tbody id="deudas-body"></tbody>
+                        <tbody id="deudas-cuotas-body"></tbody>
                     </table>
                     <div style="padding: 1.5rem;">
-                        <button onclick="addDeudaRow()" class="btn-add">+ Nueva Deuda</button>
+                        <button onclick="addDeudaCuota()" class="btn-add">+ Nuevo Gasto en Cuotas</button>
+                    </div>
+                </div>
+
+                <!-- Card de Gastos Mensuales -->
+                <div class="main-card" style="padding: 0;">
+                    <div style="padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <div style="width: 4px; height: 24px; background-color: var(--accent-orange); border-radius: 2px;"></div>
+                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Gastos Mensuales</h3>
+                        </div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Moneda</th>
+                                <th>Monto a Pagar por Mes</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="gastos-mensuales-body"></tbody>
+                    </table>
+                    <div style="padding: 1.5rem;">
+                        <button onclick="addGastoMensual()" class="btn-add">+ Nuevo Gasto Mensual</button>
                     </div>
                 </div>
             </section>

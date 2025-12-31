@@ -359,8 +359,33 @@ function removeConceptoSuman(index) {
 }
 
 // Deudas
+// Función helper para calcular fecha fin basándose en fecha inicio y cuotas a pagar
+function calcularFechaFin(fechaInicio, cuotasAPagar) {
+    if (!fechaInicio || !cuotasAPagar || cuotasAPagar <= 0) return '';
+    
+    const fecha = new Date(fechaInicio);
+    fecha.setMonth(fecha.getMonth() + parseInt(cuotasAPagar));
+    
+    // Ajustar el día si el mes resultante no tiene ese día (ej: 31 de enero + 1 mes = 31 de febrero -> 28/29 de febrero)
+    const diaOriginal = fecha.getDate();
+    fecha.setMonth(fecha.getMonth());
+    if (fecha.getDate() !== diaOriginal) {
+        fecha.setDate(0); // Ir al último día del mes anterior
+    }
+    
+    return fecha.toISOString().split('T')[0];
+}
+
+// Función helper para calcular cuotas pagadas basándose en fecha inicio y fecha actual
+function calcularCuotasPagadas(fechaInicio) {
+    if (!fechaInicio) return 0;
+    const today = new Date();
+    const start = new Date(fechaInicio);
+    const diffMeses = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
+    return Math.max(0, diffMeses + 1);
+}
+
 function renderDeudas() {
-    const body = document.getElementById('deudas-body');
     const tipoCambio = financeData.tipoCambio || 1450;
     
     // Actualizar el display en el header (solo lectura)
@@ -371,47 +396,109 @@ function renderDeudas() {
     const deudasInput = document.getElementById('input-tipo-cambio');
     if (deudasInput) deudasInput.value = tipoCambio;
     
+    // Separar deudas en cuotas y gastos mensuales
+    const deudasCuotas = financeData.deudas.filter(d => !d.esGastoMensual);
+    const gastosMensuales = financeData.deudas.filter(d => d.esGastoMensual);
+    
+    renderDeudasCuotas(deudasCuotas);
+    renderGastosMensuales(gastosMensuales);
+    
+    updateDashboard();
+}
+
+function renderDeudasCuotas(deudasCuotas) {
+    const body = document.getElementById('deudas-cuotas-body');
+    if (!body) return;
+    
     body.innerHTML = '';
-    financeData.deudas.forEach((deuda, index) => {
-        // Asegurar que existe el campo esGastoMensual
-        if (deuda.esGastoMensual === undefined) deuda.esGastoMensual = false;
+    
+    deudasCuotas.forEach((deuda, originalIndex) => {
+        // Encontrar el índice real en financeData.deudas
+        const index = financeData.deudas.findIndex(d => d === deuda);
+        if (index === -1) return;
+        
+        // Migración: si tiene pagado pero no cuotasAPagar, convertir
+        if (deuda.pagado !== undefined && deuda.cuotasAPagar === undefined) {
+            deuda.cuotasAPagar = deuda.pagado;
+        }
+        // Migración: si tiene fechaFin pero no fechaInicio, usar fechaFin como fechaInicio
+        if (deuda.fechaFin && !deuda.fechaInicio) {
+            deuda.fechaInicio = deuda.fechaFin;
+        }
+        
+        // Calcular fecha fin automáticamente si hay fecha inicio y cuotas a pagar
+        if (deuda.fechaInicio && deuda.cuotasAPagar) {
+            deuda.fechaFin = calcularFechaFin(deuda.fechaInicio, deuda.cuotasAPagar);
+        }
         
         const factor = (deuda.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        const restanteARS = deuda.esGastoMensual ? deuda.total * factor : (deuda.total - (deuda.pagado || 0)) * factor;
+        const cuotasAPagar = deuda.cuotasAPagar || 0;
+        const total = deuda.total || 0;
+        // Usar montoPorMes guardado si existe, sino calcularlo (para compatibilidad)
+        let montoPorMes = deuda.montoPorMes;
+        if (!montoPorMes || montoPorMes === 0) {
+            montoPorMes = cuotasAPagar > 0 ? (total / cuotasAPagar) : 0;
+        }
+        
+        // Calcular cuotas pagadas basándose en fecha inicio y fecha actual
+        const cuotasPagadas = calcularCuotasPagadas(deuda.fechaInicio);
+        const cuotasRestantes = Math.max(0, cuotasAPagar - cuotasPagadas);
+        const restante = montoPorMes * cuotasRestantes;
+        const restanteARS = restante * factor;
+        
+        // Calcular fecha fin para mostrar
+        const fechaFinCalculada = deuda.fechaInicio && cuotasAPagar ? calcularFechaFin(deuda.fechaInicio, cuotasAPagar) : (deuda.fechaFin || '');
         
         const tr = document.createElement('tr');
-        tr.className = deuda.esGastoMensual ? 'gasto-mensual' : '';
-        
         tr.innerHTML = `
-            <td><input type="text" value="${deuda.nombre}" onchange="updateDeuda(${index}, 'nombre', this.value)"></td>
+            <td><input type="text" value="${deuda.nombre || ''}" onchange="updateDeuda(${index}, 'nombre', this.value)" placeholder="Nombre"></td>
             <td>
                 <select style="background: var(--input-bg); color: white; border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 0.4rem;" onchange="updateDeuda(${index}, 'moneda', this.value)">
                     <option value="ARS" ${deuda.moneda === 'ARS' ? 'selected' : ''}>ARS ($)</option>
                     <option value="USD" ${deuda.moneda === 'USD' ? 'selected' : ''}>USD (u$s)</option>
                 </select>
             </td>
-            <td><input type="number" value="${deuda.total}" onchange="updateDeuda(${index}, 'total', this.value)"></td>
-            <td style="text-align: center;">
-                <input type="checkbox" ${deuda.esGastoMensual ? 'checked' : ''} onchange="toggleGastoMensual(${index}, this.checked)">
-            </td>
-            <td class="columna-pagado" style="${deuda.esGastoMensual ? 'display: none;' : ''}">
-                <input type="number" value="${deuda.pagado || 0}" onchange="updateDeuda(${index}, 'pagado', this.value)">
-            </td>
-            <td class="columna-finalizacion" style="${deuda.esGastoMensual ? 'display: none;' : ''}">
-                <input type="date" value="${deuda.fechaFin || ''}" onchange="updateDeuda(${index}, 'fechaFin', this.value)">
-            </td>
-            <td class="columna-restante" style="font-weight: 600; ${deuda.esGastoMensual ? 'display: none;' : ''}">
-                $${Math.round(restanteARS).toLocaleString()}
-            </td>
+            <td><input type="number" value="${Math.round(montoPorMes)}" onchange="updateMontoPorMes(${index}, this.value)" placeholder="0"></td>
+            <td><input type="number" value="${cuotasAPagar}" min="1" onchange="updateDeuda(${index}, 'cuotasAPagar', this.value)" placeholder="1"></td>
+            <td><input type="date" value="${deuda.fechaInicio || ''}" onchange="updateDeuda(${index}, 'fechaInicio', this.value)"></td>
+            <td style="color: var(--text-secondary);">${fechaFinCalculada ? new Date(fechaFinCalculada).toLocaleDateString('es-AR') : '-'}</td>
+            <td style="font-weight: 600;">$${Math.round(restanteARS).toLocaleString()}</td>
+            <td style="font-weight: 600;">$${Math.round(total * factor).toLocaleString()}</td>
             <td style="text-align: right;"><button class="btn-delete" onclick="removeDeuda(${index})">✕</button></td>
         `;
         body.appendChild(tr);
     });
+}
+
+function renderGastosMensuales(gastosMensuales) {
+    const body = document.getElementById('gastos-mensuales-body');
+    if (!body) return;
     
-    // Las columnas se ocultan individualmente por fila, no en el header
-    // El header siempre muestra todas las columnas para mantener la estructura de la tabla
+    body.innerHTML = '';
     
-    updateDashboard();
+    gastosMensuales.forEach((gasto, originalIndex) => {
+        // Encontrar el índice real en financeData.deudas
+        const index = financeData.deudas.findIndex(d => d === gasto);
+        if (index === -1) return;
+        
+        const factor = (gasto.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        const montoPorMes = gasto.total || 0;
+        const montoPorMesARS = montoPorMes * factor;
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="text" value="${gasto.nombre || ''}" onchange="updateDeuda(${index}, 'nombre', this.value)" placeholder="Nombre"></td>
+            <td>
+                <select style="background: var(--input-bg); color: white; border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 0.4rem;" onchange="updateDeuda(${index}, 'moneda', this.value)">
+                    <option value="ARS" ${gasto.moneda === 'ARS' ? 'selected' : ''}>ARS ($)</option>
+                    <option value="USD" ${gasto.moneda === 'USD' ? 'selected' : ''}>USD (u$s)</option>
+                </select>
+            </td>
+            <td><input type="number" value="${montoPorMes}" onchange="updateDeuda(${index}, 'total', this.value)" placeholder="0"></td>
+            <td style="text-align: right;"><button class="btn-delete" onclick="removeDeuda(${index})">✕</button></td>
+        `;
+        body.appendChild(tr);
+    });
 }
 
 function updateExchangeRate(value) {
@@ -439,33 +526,83 @@ function updateExchangeRate(value) {
 }
 
 function updateDeuda(index, field, value) {
-    if (field === 'total' || field === 'pagado') value = parseFloat(value) || 0;
-    financeData.deudas[index][field] = value;
-    renderDeudas();
-    saveData();
-    updateTimelineChart();
-}
-
-function toggleGastoMensual(index, esGastoMensual) {
-    financeData.deudas[index].esGastoMensual = esGastoMensual;
-    if (esGastoMensual) {
-        // Limpiar campos que no aplican para gastos mensuales
-        financeData.deudas[index].pagado = 0;
-        financeData.deudas[index].fechaFin = '';
+    if (field === 'total') {
+        value = parseFloat(value) || 0;
+        financeData.deudas[index][field] = value;
+        // Si se actualiza el total y hay montoPorMes guardado, no hacer nada (mantener montoPorMes)
+        // Si no hay montoPorMes, se calculará en el render
+    } else if (field === 'cuotasAPagar') {
+        value = parseFloat(value) || 0;
+        const deuda = financeData.deudas[index];
+        deuda.cuotasAPagar = value;
+        // Si hay montoPorMes guardado, recalcular el total basándose en montoPorMes * cuotas
+        if (deuda.montoPorMes && deuda.montoPorMes > 0) {
+            deuda.total = deuda.montoPorMes * value;
+        }
+        // Si no hay montoPorMes, mantener el total y se calculará montoPorMes en el render
+        // Recalcular fecha fin si hay fecha inicio
+        if (deuda.fechaInicio && value && !deuda.esGastoMensual) {
+            deuda.fechaFin = calcularFechaFin(deuda.fechaInicio, value);
+        }
+    } else {
+        financeData.deudas[index][field] = value;
+        // Si se actualiza fechaInicio, recalcular fechaFin
+        if (field === 'fechaInicio') {
+            const deuda = financeData.deudas[index];
+            if (deuda.fechaInicio && deuda.cuotasAPagar && !deuda.esGastoMensual) {
+                deuda.fechaFin = calcularFechaFin(deuda.fechaInicio, deuda.cuotasAPagar);
+            }
+        }
     }
+    
     renderDeudas();
     saveData();
     updateTimelineChart();
-    updateDashboard(); // Actualizar el dashboard para mostrar los cambios
 }
 
-function addDeudaRow() {
-    // Obtener la fecha actual en formato YYYY-MM-DD
-    const today = new Date();
-    const fechaActual = today.toISOString().split('T')[0];
+function updateMontoPorMes(index, montoPorMesValue) {
+    const deuda = financeData.deudas[index];
+    const montoPorMes = parseFloat(montoPorMesValue) || 0;
+    // Guardar el monto por mes como campo independiente
+    deuda.montoPorMes = montoPorMes;
+    const cuotasAPagar = deuda.cuotasAPagar || 1;
+    // Recalcular el total basándose en monto por mes * cuotas
+    deuda.total = montoPorMes * cuotasAPagar;
     
-    financeData.deudas.push({ nombre: '', total: 0, pagado: 0, moneda: 'ARS', fechaFin: fechaActual, esGastoMensual: false });
+    // Recalcular fecha fin si hay fecha inicio
+    if (deuda.fechaInicio && cuotasAPagar && !deuda.esGastoMensual) {
+        deuda.fechaFin = calcularFechaFin(deuda.fechaInicio, cuotasAPagar);
+    }
+    
     renderDeudas();
+    saveData();
+    updateTimelineChart();
+}
+
+function addDeudaCuota() {
+    financeData.deudas.push({ 
+        nombre: '', 
+        total: 0, 
+        montoPorMes: 0,
+        cuotasAPagar: 1, 
+        fechaInicio: '',
+        fechaFin: '',
+        moneda: 'ARS', 
+        esGastoMensual: false 
+    });
+    renderDeudas();
+    saveData();
+}
+
+function addGastoMensual() {
+    financeData.deudas.push({ 
+        nombre: '', 
+        total: 0, 
+        moneda: 'ARS', 
+        esGastoMensual: true 
+    });
+    renderDeudas();
+    saveData();
 }
 
 function removeDeuda(index) {
@@ -641,10 +778,15 @@ function updateTimelineChart() {
             });
             colorIndex++;
         } else {
-            // Deuda normal con fecha de finalización
+            // Deuda en cuotas con fecha de finalización
             if (!deuda.fechaFin) return;
             const fin = new Date(deuda.fechaFin);
-            const montoRestante = (deuda.total - (deuda.pagado || 0)) * factor;
+            // Calcular monto restante basándose en fecha inicio y actual
+            const cuotasAPagar = deuda.cuotasAPagar || 0;
+            const cuotasPagadas = calcularCuotasPagadas(deuda.fechaInicio);
+            const montoPorMes = cuotasAPagar > 0 ? (deuda.total / cuotasAPagar) : 0;
+            const cuotasRestantes = Math.max(0, cuotasAPagar - cuotasPagadas);
+            const montoRestante = montoPorMes * cuotasRestantes * factor;
             
             if (montoRestante > 0) {
                 const finMonthKey = `${fin.getFullYear()}-${String(fin.getMonth() + 1).padStart(2, '0')}`;
@@ -778,7 +920,12 @@ function updateTimelineChart() {
                                 // Buscar en deudas
                                 const deuda = financeData.deudas.find(d => d.nombre === nombreBase);
                                 if (deuda && deuda.moneda === 'USD') {
-                                    const montoUSD = (deuda.total - deuda.pagado);
+                                    // Calcular monto restante basándose en fecha inicio y actual
+                                    const cuotasAPagar = deuda.cuotasAPagar || 0;
+                                    const cuotasPagadas = calcularCuotasPagadas(deuda.fechaInicio);
+                                    const montoPorMes = cuotasAPagar > 0 ? (deuda.total / cuotasAPagar) : 0;
+                                    const cuotasRestantes = Math.max(0, cuotasAPagar - cuotasPagadas);
+                                    const montoUSD = montoPorMes * cuotasRestantes;
                                     return `${label}: $${Math.round(value).toLocaleString()} ARS (u$s${montoUSD.toLocaleString()})`;
                                 }
                                 
@@ -1207,7 +1354,7 @@ async function actualizarDolarOficial() {
 function updateDashboard() {
     // Profile info removed from header
 
-    // Calcular el total de deudas (incluyendo gastos mensuales)
+    // Calcular deudas mensuales (gastos mensuales + monto por mes de deudas en cuotas)
     let totalDeudasARS = 0;
     financeData.deudas.forEach(d => {
         const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
@@ -1215,8 +1362,13 @@ function updateDashboard() {
             // Para gastos mensuales, sumar el monto mensual
             totalDeudasARS += d.total * factor;
         } else {
-            // Para deudas normales, sumar el restante
-            totalDeudasARS += (d.total - (d.pagado || 0)) * factor;
+            // Para deudas en cuotas, usar el monto por mes (no el restante)
+            const cuotasAPagar = d.cuotasAPagar || 0;
+            let montoPorMes = d.montoPorMes;
+            if (!montoPorMes || montoPorMes === 0) {
+                montoPorMes = cuotasAPagar > 0 ? (d.total / cuotasAPagar) : 0;
+            }
+            totalDeudasARS += montoPorMes * factor;
         }
     });
     
@@ -1286,29 +1438,82 @@ function updateDashboard() {
     document.getElementById('summary-ingresos').innerText = `$${Math.round(totalIngresos).toLocaleString()}`;
     document.getElementById('summary-saldo-actual').innerText = `$${Math.round(sueldoNeto - totalDeudasARS).toLocaleString()}`;
 
-    // Tabla dashboard (muestra todas las deudas, incluyendo gastos mensuales)
-    const deudasDash = document.getElementById('dashboard-deudas-list');
-    if (financeData.deudas.length === 0) {
-        deudasDash.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No hay deudas registradas</td></tr>';
-    } else {
-        deudasDash.innerHTML = financeData.deudas.map(d => {
-            const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-            let montoARS;
-            let totalARS = d.total * factor;
-            if (d.esGastoMensual) {
-                // Para gastos mensuales, mostrar el monto mensual
-                montoARS = d.total * factor;
-            } else {
-                // Para deudas normales, mostrar el restante
-                montoARS = (d.total - (d.pagado || 0)) * factor;
+    // Calcular deudas anuales (solo primeras 12 cuotas de cada deuda en cuotas)
+    let totalDeudasAnualARS = 0;
+    financeData.deudas.forEach(d => {
+        const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        if (d.esGastoMensual) {
+            // Para gastos mensuales, sumar 12 meses
+            totalDeudasAnualARS += (d.total * 12) * factor;
+        } else {
+            // Para deudas en cuotas, sumar solo las primeras 12 cuotas
+            const cuotasAPagar = d.cuotasAPagar || 0;
+            let montoPorMes = d.montoPorMes;
+            if (!montoPorMes || montoPorMes === 0) {
+                montoPorMes = cuotasAPagar > 0 ? (d.total / cuotasAPagar) : 0;
             }
-            const tipo = d.esGastoMensual ? 'Gasto Mensual' : 'Deuda';
+            // Si tiene 12 cuotas o menos, sumar el total completo
+            // Si tiene más de 12 cuotas, solo sumar las primeras 12
+            const cuotasParaAnual = Math.min(cuotasAPagar, 12);
+            totalDeudasAnualARS += (montoPorMes * cuotasParaAnual) * factor;
+        }
+    });
+
+    // Calcular ingreso anual (sueldo neto * 12)
+    const ingresoAnual = sueldoNeto * 12;
+
+    // Calcular saldo total después de resto anual
+    const saldoAnual = ingresoAnual - totalDeudasAnualARS;
+
+    document.getElementById('summary-deudas-anual').innerText = `$${Math.round(totalDeudasAnualARS).toLocaleString()}`;
+    document.getElementById('summary-ingreso-anual').innerText = `$${Math.round(ingresoAnual).toLocaleString()}`;
+    document.getElementById('summary-saldo-anual').innerText = `$${Math.round(saldoAnual).toLocaleString()}`;
+
+    // Separar deudas en mensuales y anuales (cuotas)
+    const deudasMensuales = financeData.deudas.filter(d => d.esGastoMensual);
+    const deudasAnuales = financeData.deudas.filter(d => !d.esGastoMensual);
+
+    // Tabla de Deudas Mensuales
+    const deudasMensualesDash = document.getElementById('dashboard-deudas-mensuales-list');
+    if (deudasMensuales.length === 0) {
+        deudasMensualesDash.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No hay gastos mensuales registrados</td></tr>';
+    } else {
+        deudasMensualesDash.innerHTML = deudasMensuales.map(d => {
+            const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+            const montoMensualARS = d.total * factor;
             return `<tr>
                 <td>${d.nombre}</td>
                 <td>${d.moneda === 'USD' ? 'USD' : 'ARS'}</td>
-                <td>$${Math.round(totalARS).toLocaleString()}</td>
-                <td>${tipo}</td>
-                <td style="font-weight: 600;">$${Math.round(montoARS).toLocaleString()}</td>
+                <td style="font-weight: 600;">$${Math.round(montoMensualARS).toLocaleString()}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // Tabla de Deudas Anuales (Cuotas)
+    const deudasAnualesDash = document.getElementById('dashboard-deudas-anuales-list');
+    if (deudasAnuales.length === 0) {
+        deudasAnualesDash.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No hay deudas en cuotas registradas</td></tr>';
+    } else {
+        deudasAnualesDash.innerHTML = deudasAnuales.map(d => {
+            const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+            const totalARS = d.total * factor;
+            
+            // Calcular el restante basándose en fecha inicio y actual
+            const cuotasAPagar = d.cuotasAPagar || 0;
+            const cuotasPagadas = calcularCuotasPagadas(d.fechaInicio);
+            let montoPorMes = d.montoPorMes;
+            if (!montoPorMes || montoPorMes === 0) {
+                montoPorMes = cuotasAPagar > 0 ? (d.total / cuotasAPagar) : 0;
+            }
+            const cuotasRestantes = Math.max(0, cuotasAPagar - cuotasPagadas);
+            const restante = montoPorMes * cuotasRestantes;
+            const restanteARS = restante * factor;
+            
+            return `<tr>
+                <td>${d.nombre}</td>
+                <td>${d.moneda === 'USD' ? 'USD' : 'ARS'}</td>
+                <td style="font-weight: 600;">$${Math.round(totalARS).toLocaleString()}</td>
+                <td style="font-weight: 600;">$${Math.round(restanteARS).toLocaleString()}</td>
             </tr>`;
         }).join('');
     }
@@ -1511,13 +1716,30 @@ function importExcel() {
                     // Filtrar filas vacías
                     financeData.deudas = deudasRows
                         .filter(row => row.Nombre || row.nombre) // Solo filas con nombre
-                        .map(row => ({
-                            nombre: row.Nombre || row.nombre || '',
-                            total: parseFloat(row.Total || row.total || 0),
-                            pagado: parseFloat(row.Pagado || row.pagado || 0),
-                            moneda: row.Moneda || row.moneda || 'ARS',
-                            fechaFin: row['Fecha Fin'] || row.fechaFin || row['Fecha Finalizacion'] || row.fechaFinalizacion || ''
-                        }))
+                        .map(row => {
+                            // Migración: si viene con pagado, convertirlo a cuotasAPagar
+                            const cuotasAPagar = row['Cuotas a pagar'] || row.cuotasAPagar || row['Cuotas a Pagar'] || 
+                                                 (row.Pagado !== undefined ? row.Pagado : 0);
+                            const fechaInicio = row['Inicio a pagar'] || row.fechaInicio || row['Fecha Inicio'] || 
+                                               (row['Fecha Fin'] || row.fechaFin || '');
+                            const fechaFin = row['Fecha Fin'] || row.fechaFin || row['Fecha Finalizacion'] || row.fechaFinalizacion || '';
+                            
+                            // Calcular fecha fin si hay fecha inicio y cuotas
+                            let fechaFinCalculada = fechaFin;
+                            if (fechaInicio && cuotasAPagar && !fechaFin) {
+                                fechaFinCalculada = calcularFechaFin(fechaInicio, cuotasAPagar);
+                            }
+                            
+                            return {
+                                nombre: row.Nombre || row.nombre || '',
+                                total: parseFloat(row.Total || row.total || 0),
+                                cuotasAPagar: parseFloat(cuotasAPagar) || 0,
+                                fechaInicio: fechaInicio || '',
+                                fechaFin: fechaFinCalculada || '',
+                                moneda: row.Moneda || row.moneda || 'ARS',
+                                esGastoMensual: row['Gasto Mensual'] || row.esGastoMensual || false
+                            };
+                        })
                         .filter(deuda => deuda.nombre !== ''); // Eliminar deudas sin nombre
                 }
 
@@ -1603,9 +1825,11 @@ function exportExcel() {
             financeData.deudas.map(deuda => ({
                 Nombre: deuda.nombre || '',
                 Total: deuda.total || 0,
-                Pagado: deuda.pagado || 0,
+                'Cuotas a pagar': deuda.cuotasAPagar || 0,
+                'Inicio a pagar': deuda.fechaInicio || '',
+                'Fecha Fin': deuda.fechaFin || '',
                 Moneda: deuda.moneda || 'ARS',
-                'Fecha Fin': deuda.fechaFin || ''
+                'Gasto Mensual': deuda.esGastoMensual || false
             }))
         );
         XLSX.utils.book_append_sheet(wb, deudasWS, "Deudas");
@@ -1614,9 +1838,11 @@ function exportExcel() {
         const deudasWS = XLSX.utils.json_to_sheet([{
             Nombre: '',
             Total: 0,
-            Pagado: 0,
+            'Cuotas a pagar': 0,
+            'Inicio a pagar': '',
+            'Fecha Fin': '',
             Moneda: 'ARS',
-            'Fecha Fin': ''
+            'Gasto Mensual': false
         }]);
         XLSX.utils.book_append_sheet(wb, deudasWS, "Deudas");
     }
