@@ -576,30 +576,70 @@ table#cuotas-table td:nth-child(8) {
 }
 
 /* Mobile Menu Toggle */
-.mobile-menu-toggle {
+/* Mobile Header */
+.mobile-header {
     display: none;
     position: fixed;
-    top: 1rem;
-    left: 1rem;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background-color: var(--sidebar-bg);
+    border-bottom: 1px solid var(--border-color);
     z-index: 1001;
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-    padding: 0.75rem 1rem;
-    border-radius: 0.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.mobile-header-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1rem;
+    height: 100%;
+}
+
+.mobile-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     cursor: pointer;
+    flex: 1;
+}
+
+.mobile-logo:hover {
+    opacity: 0.8;
+}
+
+.mobile-logo img {
+    flex-shrink: 0;
+}
+
+.mobile-logo-title {
+    font-size: 1.25rem;
+    margin: 0;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+}
+
+.mobile-menu-toggle {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-primary);
     font-size: 1.5rem;
-    width: 48px;
-    height: 48px;
+    cursor: pointer;
+    padding: 0.5rem;
+    width: 40px;
+    height: 40px;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    border-radius: 0.5rem;
     transition: all 0.2s;
 }
 
 .mobile-menu-toggle:hover {
-    background-color: var(--accent-blue);
-    border-color: var(--accent-blue);
+    background-color: var(--hover-bg);
 }
 
 .mobile-menu-overlay {
@@ -623,18 +663,24 @@ table#cuotas-table td:nth-child(8) {
         overflow-x: hidden;
     }
 
+    .mobile-header {
+        display: block !important;
+    }
+
     .mobile-menu-toggle {
         display: flex !important;
     }
 
     .sidebar {
         position: fixed;
-        left: -240px;
-        top: 0;
-        height: 100vh;
+        left: -260px;
+        top: 64px;
+        height: calc(100vh - 64px);
         z-index: 1000;
         transition: left 0.3s ease;
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+        width: 260px;
+        padding: 1.5rem;
     }
 
     .sidebar.active {
@@ -644,12 +690,14 @@ table#cuotas-table td:nth-child(8) {
     .main-area {
         width: 100%;
         margin-left: 0;
+        margin-top: 64px;
     }
 
     .top-bar {
         padding: 1rem;
         flex-wrap: wrap;
         gap: 0.75rem;
+        margin-top: 0;
     }
 
     .top-info {
@@ -795,6 +843,32 @@ table#cuotas-table td:nth-child(8) {
 }
 
 @media (max-width: 480px) {
+    .mobile-header {
+        height: 56px;
+    }
+
+    .mobile-header-content {
+        padding: 0 0.75rem;
+    }
+
+    .mobile-logo-title {
+        font-size: 1.1rem;
+    }
+
+    .mobile-logo img {
+        width: 28px;
+        height: 28px;
+    }
+
+    .sidebar {
+        top: 56px;
+        height: calc(100vh - 56px);
+    }
+
+    .main-area {
+        margin-top: 56px;
+    }
+
     .container {
         padding: 0.75rem;
         margin: 0.75rem auto;

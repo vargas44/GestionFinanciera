@@ -14,8 +14,16 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
 </head>
 <body>
-    <!-- Mobile Menu Toggle -->
-    <button class="mobile-menu-toggle" onclick="toggleMobileMenu()" id="mobile-menu-btn">☰</button>
+    <!-- Mobile Header -->
+    <header class="mobile-header" id="mobile-header">
+        <div class="mobile-header-content">
+            <div class="mobile-logo" onclick="toggleMobileMenu()">
+                <img src="https://img.icons8.com/ios/100/money-with-wings.png" alt="Finance Pro Logo" style="width: 32px; height: 32px; border-radius: 8px; filter: brightness(0) invert(1);" />
+                <h1 class="mobile-logo-title">Finance Pro</h1>
+            </div>
+            <button class="mobile-menu-toggle" onclick="toggleMobileMenu()" id="mobile-menu-btn">☰</button>
+        </div>
+    </header>
     <div class="mobile-menu-overlay" id="mobile-menu-overlay" onclick="toggleMobileMenu()"></div>
 
     <!-- Sidebar Navigation -->
@@ -34,9 +42,9 @@
                     <span class="nav-icon"><img src="https://img.icons8.com/external-kosonicon-outline-kosonicon/64/external-finance-insurance-kosonicon-outline-kosonicon.png" alt="Ingresos" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
                     <span class="nav-text">Ingresos</span>
                 </a></li>
-                <li><a href="#" onclick="showSection('deudas')" id="nav-deudas">
-                    <span class="nav-icon"><img src="https://img.icons8.com/ios/100/bank-card-back-side--v1.png" alt="Deudas" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
-                    <span class="nav-text">Deudas</span>
+                <li><a href="#" onclick="showSection('gastos')" id="nav-gastos">
+                    <span class="nav-icon"><img src="https://img.icons8.com/ios/100/bank-card-back-side--v1.png" alt="Gastos" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
+                    <span class="nav-text">Gastos</span>
                 </a></li>
                 <li><a href="#" onclick="showSection('cuotas')" id="nav-cuotas">
                     <span class="nav-icon"><img src="https://img.icons8.com/ios/100/reminders.png" alt="Cuotas" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
@@ -89,8 +97,8 @@
                 
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <div class="stat-label">Deudas Mensual</div>
-                        <div class="stat-value large" id="summary-total-deudas">$0</div>
+                        <div class="stat-label">Gastos Mensual</div>
+                        <div class="stat-value large" id="summary-total-gastos">$0</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Ingresos</div>
@@ -104,8 +112,8 @@
 
                 <div class="stats-grid" style="margin-top: 1.5rem;">
                     <div class="stat-card">
-                        <div class="stat-label">Deudas Anual</div>
-                        <div class="stat-value large" id="summary-deudas-anual">$0</div>
+                        <div class="stat-label">Gastos Anual</div>
+                        <div class="stat-value large" id="summary-gastos-anual">$0</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Ingreso de Sueldo Anual</div>
@@ -119,11 +127,11 @@
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
                     <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-                        <!-- Deudas Mensuales -->
+                        <!-- Gastos Mensuales -->
                         <div class="main-card">
                             <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                                 <div style="width: 4px; height: 24px; background-color: var(--accent-orange); border-radius: 2px;"></div>
-                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Deudas Mensuales</h3>
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Gastos Mensuales</h3>
                             </div>
                             <table>
                                 <thead>
@@ -133,14 +141,14 @@
                                         <th>Monto Mensual</th>
                                     </tr>
                                 </thead>
-                                <tbody id="dashboard-deudas-mensuales-list"></tbody>
+                                <tbody id="dashboard-gastos-mensuales-list"></tbody>
                             </table>
                         </div>
-                        <!-- Deudas Anuales (Cuotas) -->
+                        <!-- Gastos Anuales (Cuotas) -->
                         <div class="main-card">
                             <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
                                 <div style="width: 4px; height: 24px; background-color: var(--accent-red); border-radius: 2px;"></div>
-                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Deudas Anuales</h3>
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Gastos Anuales</h3>
                             </div>
                             <table>
                                 <thead>
@@ -151,7 +159,7 @@
                                         <th>Restante (ARS)</th>
                                     </tr>
                                 </thead>
-                                <tbody id="dashboard-deudas-anuales-list"></tbody>
+                                <tbody id="dashboard-gastos-anuales-list"></tbody>
                             </table>
                         </div>
                     </div>
@@ -235,14 +243,14 @@
                 </div>
             </section>
 
-            <!-- Deudas Section -->
-            <section id="deudas" class="content-section">
+            <!-- Gastos Section -->
+            <section id="gastos" class="content-section">
                 <div class="header-section" style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
-                        <h2>Gestión de Deudas</h2>
-                        <p>Controla tus deudas activas y fechas de finalización.</p>
+                        <h2>Gestión de Gastos</h2>
+                        <p>Controla tus gastos activos y fechas de finalización.</p>
                     </div>
-                    <button onclick="limpiarDeudas()" class="btn-clear" title="Limpiar datos de Deudas">
+                    <button onclick="limpiarGastos()" class="btn-clear" title="Limpiar datos de Gastos">
                         <img src="https://img.icons8.com/ios/100/full-trash--v1.png" alt="Limpiar" style="width: 16px; height: 16px; filter: brightness(0) invert(1); margin-right: 0.5rem;" />
                         Limpiar
                     </button>
@@ -274,10 +282,10 @@
                                 <th></th>
                             </tr>
                         </thead>
-                        <tbody id="deudas-cuotas-body"></tbody>
+                        <tbody id="gastos-cuotas-body"></tbody>
                     </table>
                     <div style="padding: 1.5rem;">
-                        <button onclick="addDeudaCuota()" class="btn-add">+ Nuevo Gasto en Cuotas</button>
+                        <button onclick="addGastoCuota()" class="btn-add">+ Nuevo Gasto en Cuotas</button>
                     </div>
                 </div>
 
