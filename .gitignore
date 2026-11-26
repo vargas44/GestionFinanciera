@@ -15,10 +15,10 @@ desktop.ini
 *.log
 *.cache
 
-# Datos personales / financieros (NUNCA subir al repo)
+# Datos personales reales (NUNCA subir al repo)
+# finanzas-prueba.json SÍ se versiona: es solo data demo de ejemplo
 datos/
 docs/mejoras-futuras.md
-finanzas-prueba.json
 finanzas-import*.json
 **/finanzas-import*.json
 **/deudas-seguimiento.txt
