@@ -15,8 +15,12 @@ desktop.ini
 *.log
 *.cache
 
-# Archivos de datos personales (opcional - descomenta si no quieres subir datos de ejemplo)
-# data/
-# *.json
-# *.xlsx
-
+# Datos personales / financieros (NUNCA subir al repo)
+datos/
+docs/mejoras-futuras.md
+finanzas-prueba.json
+finanzas-import*.json
+**/finanzas-import*.json
+**/deudas-seguimiento.txt
+*.xlsx
+resumen-tarjeta*.pdf
