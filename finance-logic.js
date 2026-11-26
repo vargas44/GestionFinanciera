@@ -54,6 +54,13 @@
         const cuotasAPagar = gasto.cuotasAPagar || 0;
         if (!cuotasAPagar) return false;
         if (!gasto.fechaInicio) return true;
+        const start = parseLocalDate(gasto.fechaInicio);
+        if (!start) return true;
+        const ref = parseLocalDate(today) || new Date();
+        const mesActual = new Date(ref.getFullYear(), ref.getMonth(), 1);
+        const mesInicio = new Date(start.getFullYear(), start.getMonth(), 1);
+        // Todavía no empezó a pagarse
+        if (mesInicio > mesActual) return false;
         const cuotasPagadas = calcularCuotasPagadas(gasto.fechaInicio, today);
         return cuotasPagadas <= cuotasAPagar;
     }
@@ -73,14 +80,20 @@
         return moneda === 'USD' ? (tipoCambio || 1450) : 1;
     }
 
-    function calcularTotalesGastos(gastos, tipoCambio = 1450) {
+    function calcularTotalesGastos(gastos, tipoCambio = 1450, today = new Date()) {
         let totalGastosARS = 0;
         let totalCuotasAnualARS = 0;
         (gastos || []).forEach(d => {
             const factor = factorMoneda(d.moneda, tipoCambio);
             const mensual = montoMensualGasto(d);
-            totalGastosARS += mensual * factor;
-            if (!d.esGastoMensual) {
+            if (d.esGastoMensual) {
+                // Gastos mensuales siempre suman al mes
+                totalGastosARS += mensual * factor;
+            } else {
+                // Cuotas: solo suman al mes si ya empezaron y siguen activas
+                if (gastoActivoEnMes(d, today)) {
+                    totalGastosARS += mensual * factor;
+                }
                 const cuotasParaAnual = Math.min(d.cuotasAPagar || 0, 12);
                 totalCuotasAnualARS += mensual * cuotasParaAnual * factor;
             }
@@ -121,6 +134,62 @@
             else deudas[clave].ars += monto;
         });
         return Object.values(deudas).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    }
+
+    /**
+     * Resumen del mes: cuánto paga cada persona (vos vs terceros).
+     * Usa gastos activos del mes; el propio = total mensual − monto tercero.
+     */
+    function resumenGastosPorPersona(gastos, tipoCambio = 1450, today = new Date(), nombrePropio = 'Vos') {
+        const porClave = {};
+        const ensure = (clave, nombre, esPropio) => {
+            if (!porClave[clave]) {
+                porClave[clave] = { clave, nombre, esPropio: !!esPropio, totalARS: 0, items: [] };
+            }
+            return porClave[clave];
+        };
+
+        (gastos || []).forEach(g => {
+            normalizarGastoCompartido(g);
+            if (!gastoActivoEnMes(g, today)) return;
+            const factor = factorMoneda(g.moneda, tipoCambio);
+            const totalMes = montoMensualGasto(g) * factor;
+            if (totalMes <= 0) return;
+
+            let montoTerceroARS = 0;
+            if (g.esCompartido) {
+                montoTerceroARS = (parseFloat(g.montoTercero) || 0) * factor;
+            }
+            const propioARS = Math.max(0, totalMes - montoTerceroARS);
+
+            if (propioARS > 0.005) {
+                const persona = ensure('__PROPIO__', nombrePropio || 'Vos', true);
+                persona.totalARS += propioARS;
+                persona.items.push({ nombre: g.nombre || 'Gasto', montoARS: propioARS });
+            }
+            if (montoTerceroARS > 0.005) {
+                const nombre = ((g.terceroNombre || '').trim() || 'Tercero');
+                const clave = nombre.toUpperCase();
+                const persona = ensure(clave, nombre.toUpperCase(), false);
+                persona.totalARS += montoTerceroARS;
+                persona.items.push({ nombre: g.nombre || 'Gasto', montoARS: montoTerceroARS });
+            }
+        });
+
+        const personas = Object.values(porClave).sort((a, b) => {
+            if (a.esPropio !== b.esPropio) return a.esPropio ? -1 : 1;
+            return b.totalARS - a.totalARS;
+        });
+        const totalMesARS = personas.reduce((acc, p) => acc + p.totalARS, 0);
+        const totalPropioARS = personas.filter(p => p.esPropio).reduce((acc, p) => acc + p.totalARS, 0);
+        const totalRecuperarARS = totalMesARS - totalPropioARS;
+
+        return {
+            personas,
+            totalMesARS,
+            totalPropioARS,
+            totalRecuperarARS
+        };
     }
 
     function calcularIngresos(sueldo) {
@@ -170,7 +239,7 @@
 
     function calcularDashboardResumen(financeData, today = new Date()) {
         const tipoCambio = financeData.tipoCambio || 1450;
-        const { totalGastosARS, totalCuotasAnualARS } = calcularTotalesGastos(financeData.gastos || [], tipoCambio);
+        const { totalGastosARS, totalCuotasAnualARS } = calcularTotalesGastos(financeData.gastos || [], tipoCambio, today);
         const { totalIngresos, sueldoNeto } = calcularIngresos(financeData.sueldo || {});
         const recuperar = calcularRecuperarTerceros(financeData.gastos || [], tipoCambio, today);
         const gastoRealPropio = totalGastosARS - recuperar.totalARSCompleto;
@@ -214,6 +283,73 @@
         return `¡Hola ${nombre}! Te paso el total de la tarjeta de este mes: $${montoTexto}. ¡Gracias!`;
     }
 
+    /**
+     * SAC / aguinaldo (Argentina — Ley 23.041 / LCT art. 121):
+     * 50% de la mayor remuneración mensual bruta del semestre.
+     * Proporcional: × (días trabajados / 180).
+     * Neto estimado: descuenta aportes típicos (~17%: jubilación 11% + OS 3% + PAMI 3%).
+     */
+    function calcularAguinaldoSAC({ mejorRemuneracionBruta = 0, diasTrabajados = 180, aportesPct = 17 } = {}) {
+        const brutoBase = Math.max(0, parseFloat(mejorRemuneracionBruta) || 0);
+        const diasRaw = parseFloat(diasTrabajados);
+        const dias = Number.isFinite(diasRaw) ? Math.min(180, Math.max(0, diasRaw)) : 180;
+        const aportes = Math.max(0, Math.min(100, parseFloat(aportesPct) || 0));
+        const sacBruto = (brutoBase / 2) * (dias / 180);
+        const sacNeto = sacBruto * (1 - aportes / 100);
+        return {
+            mejorRemuneracionBruta: brutoBase,
+            diasTrabajados: dias,
+            aportesPct: aportes,
+            sacBruto,
+            sacNeto
+        };
+    }
+
+    function estimarBrutoDesdeNeto(neto, aportesPct = 17) {
+        const n = Math.max(0, parseFloat(neto) || 0);
+        const aportes = Math.max(0, Math.min(99.9, parseFloat(aportesPct) || 0));
+        const factor = 1 - aportes / 100;
+        if (factor <= 0) return 0;
+        return n / factor;
+    }
+
+    /**
+     * Desde lo depositado en el banco:
+     * - bono no remunerativo (teletrabajo / reembolso Ley 27.555): no lleva aportes ni entra al SAC
+     * - el resto es neto salarial → se estima el bruto con aportes típicos (~17%)
+     * Acepta alias legacy `conectividad`.
+     */
+    function desglosarSueldoDesdeDeposito({
+        deposito = 0,
+        bonoNoRemunerativo = 0,
+        conectividad = 0,
+        aportesPct = 17
+    } = {}) {
+        const dep = Math.max(0, parseFloat(deposito) || 0);
+        const bonoRaw = parseFloat(bonoNoRemunerativo);
+        const bono = Math.max(0, Math.min(dep, Number.isFinite(bonoRaw) && bonoRaw > 0 ? bonoRaw : (parseFloat(conectividad) || 0)));
+        const aportes = Math.max(0, Math.min(99.9, parseFloat(aportesPct) || 0));
+        const netoSalarial = Math.max(0, dep - bono);
+        const brutoEstimado = estimarBrutoDesdeNeto(netoSalarial, aportes);
+        const aportesEstimados = brutoEstimado * (aportes / 100);
+        const sac = calcularAguinaldoSAC({
+            mejorRemuneracionBruta: brutoEstimado,
+            diasTrabajados: 180,
+            aportesPct: aportes
+        });
+        return {
+            deposito: dep,
+            bonoNoRemunerativo: bono,
+            conectividad: bono, // alias legacy
+            netoSalarial,
+            brutoEstimado,
+            aportesPct: aportes,
+            aportesEstimados,
+            sacBrutoEstimado: sac.sacBruto,
+            sacNetoEstimado: sac.sacNeto
+        };
+    }
+
     return {
         parseExcelBool,
         parseLocalDate,
@@ -224,8 +360,12 @@
         calcularTotalesGastos,
         calcularRecuperarTerceros,
         agruparDeudasTerceros,
+        resumenGastosPorPersona,
         calcularIngresos,
         calcularDashboardResumen,
-        textoRecordatorioWhatsApp
+        textoRecordatorioWhatsApp,
+        calcularAguinaldoSAC,
+        estimarBrutoDesdeNeto,
+        desglosarSueldoDesdeDeposito
     };
 });

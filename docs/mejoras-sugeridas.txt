@@ -1,0 +1,75 @@
+================================================================================
+MEJORAS SUGERIDAS — Finance Pro
+Actualizado: 2026-11-25
+Origen: flujo real de carga (capturas, PDF, TXT, JSON, propios vs a cobrar)
+================================================================================
+
+LEGENDA DE ESTADO
+- [ ] pendiente
+- [~] en progreso
+- [x] hecha
+
+================================================================================
+ALTA PRIORIDAD
+================================================================================
+
+[x] 1. Importar sin pisar todo (MERGE) — dos botones claros
+    - "Importar JSON": pisa TODO (útil para cargar/consultar una versión vieja).
+    - "Agregar / actualizar datos": combina gastos/cuotas y también actualiza
+      ingresos/sueldo si el JSON trae datos (si no trae, conserva el actual).
+    - Sin diálogo confuso: cada botón hace una sola cosa.
+
+[ ] 2. Alta rápida “desde resumen”
+    - Formulario por entidad (Naranja / Mastercard / Mercado Pago / Préstamo):
+      nombre, cuota X de Y, monto, vencimiento, ¿propio o a cobrar?
+    - Genera el gasto en cuotas sin armar JSON a mano.
+
+[ ] 3. Pegar texto / leer PDF
+    - Pegar bloque del home banking o subir PDF y proponer filas a confirmar.
+
+[ ] 4. Marcar resumen como PAGADO
+    - Ej. Naranja: “este cierre ya lo pagué” → no suma al mes,
+      pero las cuotas futuras siguen.
+
+[~] 5. Dashboard más claro con cuotas
+    - “A pagar este mes” = mensuales + cuotas activas del período.
+    - Evitar que “Gastos mensuales” se vea vacío cuando todo es en cuotas.
+    - [x] Anti-doble-conteo: cuotas futuras no suman al mes; test de regresión;
+          sin finance-logic.js no se calculan totales (banner Ctrl+F5).
+
+================================================================================
+MEDIA PRIORIDAD
+================================================================================
+
+[ ] 6. Estados: propio / a cobrar / histórico (filtros y colores)
+
+[ ] 7. “Cobré esta cuota” en AMIGO/PAPÁ/MAMÁ/ELVA
+    - Registra cobro y baja lo pendiente.
+
+[ ] 8. Vencimientos de la semana
+    - Lista: préstamos, MP, Naranja, etc.
+
+[ ] 9. Snapshot del mes
+    - Botón “Guardar mes” → TXT/JSON local en datos/
+
+[ ] 10. Validación al importar más visible en Dashboard
+     - Mostrar totales al instante tras importar.
+
+================================================================================
+BAJA PRIORIDAD
+================================================================================
+
+[ ] 11. Agrupar por entidad (todo Naranja, todo MP)
+
+[ ] 12. Comparar mes anterior vs actual
+
+[ ] 13. Recordatorios WhatsApp por plan/cuota
+
+================================================================================
+PRÓXIMO SPRINT SUGERIDO (si se eligen solo 3)
+================================================================================
+1) Merge de importación          ← hecha
+2) Alta rápida de cuota (X de Y)
+3) Dashboard “A pagar este mes”
+
+================================================================================

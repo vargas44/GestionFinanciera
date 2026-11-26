@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Finance Dashboard</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20261126b">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -66,7 +69,8 @@
                 <div style="display: flex; gap: 0.5rem; flex-direction: column;">
                     <button onclick="exportJSON()" class="btn-secondary" title="Exportar JSON" style="width: 100%;">Exportar JSON</button>
                     <button onclick="exportExcel()" class="btn-secondary" title="Exportar Excel" style="width: 100%;">Exportar Excel</button>
-                    <button onclick="importJSON()" class="btn-secondary" title="Importar JSON" style="width: 100%;">Importar JSON</button>
+                    <button onclick="importJSON('replace')" class="btn-secondary" title="Reemplaza todos los datos por el archivo (útil para cargar una versión vieja)" style="width: 100%;">Importar JSON</button>
+                    <button onclick="importJSON('merge')" class="btn-secondary" title="Agrega o actualiza gastos e ingresos del archivo sin borrar lo que no viene en el JSON" style="width: 100%;">Agregar / actualizar datos</button>
                     <button onclick="importExcel()" class="btn-secondary" title="Importar Excel" style="width: 100%;">Importar Excel</button>
                 </div>
             </div>
@@ -138,8 +142,8 @@
                     </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <div class="dashboard-two-col" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">
+                    <div class="dashboard-side-col" style="display: flex; flex-direction: column; gap: 1.5rem;">
                         <!-- Gastos Mensuales -->
                         <div class="main-card">
                             <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
@@ -176,12 +180,36 @@
                             </table>
                         </div>
                     </div>
-                    <div class="main-card">
-                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
-                            <div style="width: 4px; height: 24px; background-color: var(--accent-green); border-radius: 2px;"></div>
-                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Ingresos Detallados</h3>
+                    <div class="dashboard-side-col" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                        <div class="main-card" id="card-ingresos-detallados">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);">
+                                <div style="width: 4px; height: 24px; background-color: var(--accent-green); border-radius: 2px;"></div>
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Ingresos Detallados</h3>
+                            </div>
+                            <div id="dashboard-ingresos-list" class="dashboard-ingresos-compact"></div>
                         </div>
-                        <div id="dashboard-ingresos-list"></div>
+                        <div class="main-card">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);">
+                                <div style="width: 4px; height: 24px; background-color: var(--accent-orange); border-radius: 2px;"></div>
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Resumen por persona</h3>
+                            </div>
+                            <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0 0 1rem;">Quién paga cada parte de los gastos activos del mes.</p>
+                            <div class="table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Quién</th>
+                                            <th>A pagar este mes</th>
+                                            <th>% del total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dashboard-resumen-persona-body">
+                                        <tr><td colspan="3" style="text-align: center; color: var(--text-secondary); padding: 2rem;">Sin datos</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="dashboard-resumen-persona-footer" style="margin-top: 1rem; display: grid; gap: 0.5rem;"></div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -201,7 +229,7 @@
                 <div class="main-card">
                     <div class="form-group" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
                         <input type="checkbox" id="checkbox-sueldo-neto" onchange="toggleSueldoNeto(this.checked)" style="width: 20px; height: 20px; cursor: pointer;">
-                        <label for="checkbox-sueldo-neto" style="margin: 0; cursor: pointer; font-weight: 600;">Sueldo Neto (Ingresar directamente)</label>
+                        <label for="checkbox-sueldo-neto" style="margin: 0; cursor: pointer; font-weight: 600;">Modo depósito bancario (recomendado)</label>
                     </div>
                     
                     <div id="sueldo-bruto-container" class="form-group">
@@ -209,9 +237,47 @@
                         <input type="number" id="input-sueldo-bruto" oninput="calculateSueldo()" placeholder="0.00">
                     </div>
                     
-                    <div id="sueldo-neto-container" class="form-group" style="display: none;">
-                        <label>Sueldo Neto</label>
-                        <input type="number" id="input-sueldo-neto-directo" oninput="updateSueldoNetoDirecto(this.value)" placeholder="0.00">
+                    <div id="sueldo-neto-container" style="display: none;">
+                        <div class="form-group">
+                            <label>Lo que te depositaron en el banco</label>
+                            <input type="number" id="input-sueldo-neto-directo" oninput="updateSueldoNetoDirecto(this.value)" placeholder="Ej: 1299155" step="0.01">
+                            <small style="color: var(--text-secondary); font-size: 0.8rem; display: block; margin-top: 0.25rem;">Total acreditado. Si este mes hay bono no remunerativo, activá el check de abajo.</small>
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+                            <input type="checkbox" id="checkbox-bono-no-remunerativo" onchange="toggleBonoNoRemunerativo(this.checked)" style="width: 18px; height: 18px; cursor: pointer;">
+                            <label for="checkbox-bono-no-remunerativo" style="margin: 0; cursor: pointer; font-weight: 600;">Este mes incluye bono no remunerativo</label>
+                        </div>
+                        <div id="bono-no-remunerativo-fields" class="form-group" style="display: none;">
+                            <label>Monto del bono no remunerativo</label>
+                            <input type="number" id="input-sueldo-bono-no-remunerativo" oninput="updateBonoNoRemunerativo(this.value)" placeholder="Ej: 70000" step="0.01">
+                            <small style="color: var(--text-secondary); font-size: 0.8rem; display: block; margin-top: 0.25rem;">Ej. reembolso teletrabajo (Ley 27.555): no paga aportes ni entra al aguinaldo. Si este mes no lo cobrás, desmarcá el check.</small>
+                        </div>
+                        <div id="sueldo-desglose" style="margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-color); border-radius: 0.75rem; display: grid; gap: 0.65rem;">
+                            <div style="display: flex; justify-content: space-between; gap: 1rem;">
+                                <span style="color: var(--text-secondary);">Neto salarial (depósito − bono no rem.)</span>
+                                <strong id="sueldo-neto-salarial">$0</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 1rem;">
+                                <span style="color: var(--text-secondary);">Bruto estimado (÷ 0,83 / aportes 17%)</span>
+                                <strong id="sueldo-bruto-estimado">$0</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 1rem;">
+                                <span style="color: var(--text-secondary);">Aportes estimados (17%)</span>
+                                <strong id="sueldo-aportes-estimados">$0</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 1rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color);">
+                                <span style="color: var(--text-secondary);">Base SAC / aguinaldo</span>
+                                <strong id="sueldo-base-sac">$0</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 1rem;">
+                                <span style="color: var(--text-secondary);">SAC bruto estimado (50%)</span>
+                                <strong id="sueldo-sac-bruto">$0</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 1rem;">
+                                <span style="color: var(--text-secondary);">SAC neto estimado</span>
+                                <strong id="sueldo-sac-neto">$0</strong>
+                            </div>
+                        </div>
                     </div>
                     
                     <div id="secciones-calculo-sueldo">
@@ -220,7 +286,7 @@
                                 <div style="width: 4px; height: 24px; background-color: var(--accent-green); border-radius: 2px;"></div>
                                 <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600; color: var(--accent-green);">Conceptos que se suman al básico</h3>
                             </div>
-                            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Bono de conectividad, feriados, horas extras, etc.</p>
+                            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">Feriados, horas extras, etc. (remunerativos). El bono no remunerativo va arriba en modo depósito.</p>
                             <div id="conceptos-suman-list">
                                 <!-- Items que suman al básico -->
                             </div>
@@ -239,7 +305,7 @@
                     </div>
 
                     <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); text-align: right;">
-                        <span style="color: var(--text-secondary);">Neto a cobrar:</span>
+                        <span style="color: var(--text-secondary);" id="sueldo-neto-label">Neto a cobrar:</span>
                         <div class="stat-value large" id="sueldo-neto-result">$0</div>
                     </div>
                 </div>
@@ -420,15 +486,33 @@
                         </div>
                     </div>
 
-                    <!-- Aguinaldo -->
+                    <!-- Aguinaldo (SAC Argentina) -->
                     <div class="main-card">
-                        <h3 style="margin-top: 0; margin-bottom: 1.5rem;">Aguinaldo</h3>
-                        <div style="margin-bottom: 1rem;">
-                            <span style="color: var(--text-secondary);">Sueldo Neto a Cobrar:</span>
-                            <div class="stat-value" id="aguinaldo-sueldo-neto">$0</div>
+                        <h3 style="margin-top: 0; margin-bottom: 0.5rem;">Aguinaldo (SAC)</h3>
+                        <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0 0 1rem;">
+                            Ley 23.041: 50% de la <strong>mayor remuneración bruta</strong> del semestre.
+                            Si solo cargás neto en Ingresos, estimamos el bruto automáticamente.
+                        </p>
+                        <div style="margin-bottom: 0.75rem;">
+                            <span style="color: var(--text-secondary); font-size: 0.85rem;">Tu neto a cobrar (Ingresos):</span>
+                            <div class="stat-value" id="aguinaldo-neto-origen">$0</div>
                         </div>
-                        <div style="padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
-                            <span style="color: var(--text-secondary);">Aguinaldo (50% del Neto):</span>
+                        <div class="form-group">
+                            <label>Mejor sueldo bruto del semestre (estimado si solo tenés neto)</label>
+                            <input type="number" id="input-aguinaldo-bruto" oninput="calculateAguinaldo()" placeholder="0.00" step="0.01">
+                            <small id="aguinaldo-bruto-hint" style="color: var(--text-secondary); font-size: 0.8rem; display: block; margin-top: 0.25rem;"></small>
+                        </div>
+                        <div class="form-group">
+                            <label>Días trabajados en el semestre</label>
+                            <input type="number" id="input-aguinaldo-dias" value="180" min="0" max="180" oninput="calculateAguinaldo()" placeholder="180">
+                            <small style="color: var(--text-secondary); font-size: 0.8rem; display: block; margin-top: 0.25rem;">180 = semestre completo. Menos días → SAC proporcional.</small>
+                        </div>
+                        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                            <span style="color: var(--text-secondary);">SAC bruto:</span>
+                            <div class="stat-value" id="aguinaldo-result-bruto">$0</div>
+                        </div>
+                        <div style="margin-top: 0.75rem;">
+                            <span style="color: var(--text-secondary);">SAC neto estimado (~17% aportes):</span>
                             <div class="stat-value large" id="aguinaldo-result">$0</div>
                         </div>
                     </div>
@@ -437,7 +521,7 @@
                     <div class="main-card">
                         <h3 style="margin-top: 0; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
                             <span>Dólar Oficial</span>
-                            <button onclick="actualizarDolarOficial()" class="btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" id="btn-actualizar-dolar">
+                            <button onclick="actualizarDolarOficial(true)" class="btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;" id="btn-actualizar-dolar">
                                 Actualizar
                             </button>
                         </h3>
@@ -447,6 +531,9 @@
                             <div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.5rem;" id="dolar-oficial-fecha">
                                 Última actualización: -
                             </div>
+                            <button type="button" id="btn-usar-dolar-oficial" onclick="aplicarDolarOficialAlTipoCambio()" class="btn-secondary" style="margin-top: 1rem; display: none; padding: 0.45rem 0.9rem; font-size: 0.85rem;">
+                                Usar en la app
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -457,7 +544,7 @@
                         <h3 style="margin-top: 0; margin-bottom: 1.5rem;">Calculadora de Dólar</h3>
                         <div class="form-group">
                             <label>Tipo de Cambio (1 USD = ARS)</label>
-                            <input type="number" id="input-calc-dolar-tc" value="1450" oninput="calculateDolar()" placeholder="1450">
+                            <input type="number" id="input-calc-dolar-tc" value="1450" oninput="updateExchangeRate(this.value)" placeholder="1450">
                         </div>
                         <div class="form-group">
                             <label>USD a ARS</label>
@@ -647,7 +734,7 @@
     </main>
 
     <input type="file" id="import-file" style="display:none" onchange="handleFileImport(event)">
-    <script src="finance-logic.js"></script>
-    <script src="script.js"></script>
+    <script src="finance-logic.js?v=20261126b"></script>
+    <script src="script.js?v=20261126b"></script>
 </body>
 </html>

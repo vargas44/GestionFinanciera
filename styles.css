@@ -374,6 +374,27 @@ body {
     width: 100%;
 }
 
+/* Columnas del dashboard: el gap del flex maneja el espacio */
+.dashboard-side-col > .main-card {
+    margin-bottom: 0;
+}
+
+/* Ingresos detallados: alto de ~8 ítems, no se estira con la columna de gastos */
+#card-ingresos-detallados {
+    padding: 1.25rem 1.5rem;
+    align-self: start;
+}
+
+.dashboard-ingresos-compact {
+    max-height: 17rem; /* ~8 filas */
+    overflow-y: auto;
+}
+
+.dashboard-ingresos-compact > div {
+    margin-bottom: 0.4rem !important;
+    line-height: 1.35;
+}
+
 .main-card:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }

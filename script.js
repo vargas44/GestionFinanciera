@@ -16,8 +16,31 @@ let financeData = {
     historial: []
 };
 
+function ensureFinanceLogicLoaded() {
+    const logic = getFinanceLogic();
+    const existing = document.getElementById('finance-logic-warning');
+    if (logic && typeof logic.calcularDashboardResumen === 'function') {
+        if (existing) existing.remove();
+        return true;
+    }
+    console.error('FinanceLogic no cargó. Recargá con Ctrl+F5 (caché vieja).');
+    if (existing) return false;
+    const banner = document.createElement('div');
+    banner.id = 'finance-logic-warning';
+    banner.setAttribute('role', 'alert');
+    banner.style.cssText = [
+        'position:fixed', 'top:0', 'left:0', 'right:0', 'z-index:99999',
+        'padding:12px 16px', 'background:#b91c1c', 'color:#fff',
+        'font:600 14px/1.4 system-ui,sans-serif', 'text-align:center'
+    ].join(';');
+    banner.textContent = 'Cálculos desactualizados: recargá con Ctrl+F5 (no se cargó finance-logic.js).';
+    document.body.prepend(banner);
+    return false;
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    ensureFinanceLogicLoaded();
     loadData();
     
     // Restaurar estado del sidebar
@@ -32,6 +55,29 @@ document.addEventListener('DOMContentLoaded', () => {
     
     renderAll();
 });
+
+function ensureFinanceDataShape(data) {
+    if (!data || typeof data !== 'object') data = {};
+    if (!data.profile) data.profile = { nombre: '', identificacion: '', empleador: '' };
+    if (data.tipoCambio == null) data.tipoCambio = 1450;
+    if (!data.sueldo) data.sueldo = { bruto: 0, items: [], conceptosSuman: [], sueldoNetoDirecto: false, netoDirecto: 0, bonoNoRemunerativo: 0, tieneBonoNoRemunerativo: false, aportesPct: 17 };
+    if (!Array.isArray(data.sueldo.items)) data.sueldo.items = [];
+    if (!Array.isArray(data.sueldo.conceptosSuman)) data.sueldo.conceptosSuman = [];
+    // Migración: conectividad → bonoNoRemunerativo
+    if (data.sueldo.bonoNoRemunerativo == null) {
+        data.sueldo.bonoNoRemunerativo = parseFloat(data.sueldo.conectividad) || 0;
+    }
+    if (data.sueldo.tieneBonoNoRemunerativo == null) {
+        data.sueldo.tieneBonoNoRemunerativo = (parseFloat(data.sueldo.bonoNoRemunerativo) || 0) > 0;
+    }
+    if (!data.sueldo.tieneBonoNoRemunerativo) data.sueldo.bonoNoRemunerativo = 0;
+    if (data.sueldo.aportesPct == null) data.sueldo.aportesPct = 17;
+    if (!Array.isArray(data.gastos)) data.gastos = [];
+    if (!Array.isArray(data.cuotas)) data.cuotas = [];
+    if (!Array.isArray(data.historial)) data.historial = [];
+    data.gastos.forEach(g => normalizarGastoCompartido(g));
+    return data;
+}
 
 function loadData() {
     const saved = localStorage.getItem('financeData');
@@ -55,11 +101,7 @@ function loadData() {
                 parsed.sueldo.otrosIngresos.forEach(i => parsed.sueldo.items.push({...i, tipo: 'monto', categoria: 'ingreso'}));
             }
         }
-        financeData = parsed;
-        // Migración: campos de gastos compartidos
-        if (financeData.gastos) {
-            financeData.gastos.forEach(g => normalizarGastoCompartido(g));
-        }
+        financeData = ensureFinanceDataShape(parsed);
     }
 }
 
@@ -197,8 +239,7 @@ function renderAll() {
 }
 
 function renderSueldo() {
-    if (!financeData.sueldo) financeData.sueldo = { bruto: 0, items: [], sueldoNetoDirecto: false, netoDirecto: 0 };
-    if (!financeData.sueldo.items) financeData.sueldo.items = [];
+    financeData.sueldo = ensureFinanceDataShape(financeData).sueldo;
     
     // Restaurar estado del checkbox
     const checkbox = document.getElementById('checkbox-sueldo-neto');
@@ -210,7 +251,8 @@ function renderSueldo() {
     if (financeData.sueldo.sueldoNetoDirecto) {
         const netoInput = document.getElementById('input-sueldo-neto-directo');
         if (netoInput) netoInput.value = financeData.sueldo.netoDirecto || 0;
-        updateSueldoNetoDirecto(financeData.sueldo.netoDirecto || 0);
+        syncBonoNoRemunerativoUI();
+        actualizarDesgloseSueldoDesdeDeposito();
     } else {
         const brutoInput = document.getElementById('input-sueldo-bruto');
         if (brutoInput) brutoInput.value = financeData.sueldo.bruto;
@@ -276,6 +318,7 @@ function toggleSueldoNeto(esNetoDirecto) {
     const ingresosCard = document.getElementById('ingresos-adicionales-card');
     const conceptosCard = document.getElementById('conceptos-suman-basico-card');
     
+    const netoLabel = document.getElementById('sueldo-neto-label');
     if (esNetoDirecto) {
         // Ocultar sueldo bruto y secciones de cálculo (incluye conceptos dentro)
         if (brutoContainer) brutoContainer.style.display = 'none';
@@ -283,13 +326,13 @@ function toggleSueldoNeto(esNetoDirecto) {
         // NO ocultar la card de ingresos adicionales (se mantiene visible)
         // Mostrar sueldo neto directo
         if (netoContainer) netoContainer.style.display = 'block';
+        if (netoLabel) netoLabel.textContent = 'Depositado en el banco:';
         
-        // Inicializar el valor si no existe
-        if (!financeData.sueldo.netoDirecto) {
-            financeData.sueldo.netoDirecto = 0;
-        }
-        document.getElementById('input-sueldo-neto-directo').value = financeData.sueldo.netoDirecto;
-        updateSueldoNetoDirecto(financeData.sueldo.netoDirecto);
+        if (financeData.sueldo.netoDirecto == null) financeData.sueldo.netoDirecto = 0;
+        const netoInput = document.getElementById('input-sueldo-neto-directo');
+        if (netoInput) netoInput.value = financeData.sueldo.netoDirecto || 0;
+        syncBonoNoRemunerativoUI();
+        actualizarDesgloseSueldoDesdeDeposito();
     } else {
         // Mostrar sueldo bruto y secciones de cálculo (incluye conceptos dentro)
         if (brutoContainer) brutoContainer.style.display = 'block';
@@ -298,6 +341,7 @@ function toggleSueldoNeto(esNetoDirecto) {
         if (ingresosCard) ingresosCard.style.display = 'block';
         // Ocultar sueldo neto directo
         if (netoContainer) netoContainer.style.display = 'none';
+        if (netoLabel) netoLabel.textContent = 'Neto a cobrar:';
         
         // Recalcular con el sueldo bruto
         calculateSueldo();
@@ -307,12 +351,96 @@ function toggleSueldoNeto(esNetoDirecto) {
     updateDashboard();
 }
 
-function updateSueldoNetoDirecto(value) {
-    financeData.sueldo.netoDirecto = parseFloat(value) || 0;
-    document.getElementById('sueldo-neto-result').innerText = `$${Math.round(financeData.sueldo.netoDirecto).toLocaleString()}`;
+function getBonoNoRemunerativoMonto() {
+    if (!financeData.sueldo?.tieneBonoNoRemunerativo) return 0;
+    return Math.max(0, parseFloat(financeData.sueldo.bonoNoRemunerativo) || 0);
+}
+
+function syncBonoNoRemunerativoUI() {
+    const check = document.getElementById('checkbox-bono-no-remunerativo');
+    const fields = document.getElementById('bono-no-remunerativo-fields');
+    const input = document.getElementById('input-sueldo-bono-no-remunerativo');
+    const activo = !!financeData.sueldo.tieneBonoNoRemunerativo;
+    if (check) check.checked = activo;
+    if (fields) fields.style.display = activo ? 'block' : 'none';
+    if (input) input.value = activo ? (financeData.sueldo.bonoNoRemunerativo || 0) : '';
+}
+
+function toggleBonoNoRemunerativo(activo) {
+    financeData.sueldo.tieneBonoNoRemunerativo = !!activo;
+    if (!activo) {
+        financeData.sueldo.bonoNoRemunerativo = 0;
+    } else if (!(parseFloat(financeData.sueldo.bonoNoRemunerativo) > 0)) {
+        financeData.sueldo.bonoNoRemunerativo = 70000; // valor típico del recibo; editable
+    }
+    syncBonoNoRemunerativoUI();
+    actualizarDesgloseSueldoDesdeDeposito();
     saveData();
     updateDashboard();
 }
+
+function updateBonoNoRemunerativo(value) {
+    financeData.sueldo.tieneBonoNoRemunerativo = true;
+    financeData.sueldo.bonoNoRemunerativo = Math.max(0, parseFloat(value) || 0);
+    actualizarDesgloseSueldoDesdeDeposito();
+    saveData();
+    updateDashboard();
+}
+
+function getDesgloseSueldoActual() {
+    const logic = getFinanceLogic();
+    const deposito = parseFloat(financeData.sueldo?.netoDirecto) || 0;
+    const bonoNoRemunerativo = getBonoNoRemunerativoMonto();
+    const aportesPct = parseFloat(financeData.sueldo?.aportesPct) || 17;
+    if (logic && typeof logic.desglosarSueldoDesdeDeposito === 'function') {
+        return logic.desglosarSueldoDesdeDeposito({ deposito, bonoNoRemunerativo, aportesPct });
+    }
+    const netoSalarial = Math.max(0, deposito - bonoNoRemunerativo);
+    const brutoEstimado = aportesPct < 100 ? netoSalarial / (1 - aportesPct / 100) : 0;
+    return {
+        deposito,
+        bonoNoRemunerativo,
+        conectividad: bonoNoRemunerativo,
+        netoSalarial,
+        brutoEstimado,
+        aportesEstimados: brutoEstimado * (aportesPct / 100),
+        sacBrutoEstimado: brutoEstimado / 2,
+        sacNetoEstimado: (brutoEstimado / 2) * (1 - aportesPct / 100)
+    };
+}
+
+function actualizarDesgloseSueldoDesdeDeposito() {
+    const d = getDesgloseSueldoActual();
+    // Guardamos el bruto estimado para SAC / herramientas (no remunerativo excluido)
+    financeData.sueldo.brutoEstimado = d.brutoEstimado;
+
+    const fmt = (n) => `$${Math.round(n || 0).toLocaleString()}`;
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    setText('sueldo-neto-salarial', fmt(d.netoSalarial));
+    setText('sueldo-bruto-estimado', fmt(d.brutoEstimado));
+    setText('sueldo-aportes-estimados', fmt(d.aportesEstimados));
+    setText('sueldo-base-sac', fmt(d.brutoEstimado));
+    setText('sueldo-sac-bruto', fmt(d.sacBrutoEstimado));
+    setText('sueldo-sac-neto', fmt(d.sacNetoEstimado));
+    setText('sueldo-neto-result', fmt(d.deposito));
+
+    const inputAguinaldoBruto = document.getElementById('input-aguinaldo-bruto');
+    if (inputAguinaldoBruto && d.brutoEstimado > 0) {
+        inputAguinaldoBruto.value = Math.round(d.brutoEstimado);
+        calculateAguinaldo();
+    }
+}
+
+function updateSueldoNetoDirecto(value) {
+    financeData.sueldo.netoDirecto = parseFloat(value) || 0;
+    actualizarDesgloseSueldoDesdeDeposito();
+    saveData();
+    updateDashboard();
+}
+
 
 function calculateSueldo() {
     // Si está en modo sueldo neto directo, no calcular
@@ -421,20 +549,59 @@ function removeConceptoSuman(index) {
 }
 
 // Gastos compartidos / consumos de terceros (delegado a finance-logic.js)
+function getFinanceLogic() {
+    return window.FinanceLogic || null;
+}
+
 function normalizarGastoCompartido(gasto) {
-    return window.FinanceLogic.normalizarGastoCompartido(gasto);
+    const logic = getFinanceLogic();
+    if (logic) return logic.normalizarGastoCompartido(gasto);
+    if (!gasto) return gasto;
+    if (gasto.esCompartido === undefined) gasto.esCompartido = false;
+    if (!gasto.terceroNombre) gasto.terceroNombre = '';
+    if (gasto.montoTercero === undefined) gasto.montoTercero = 0;
+    return gasto;
 }
 
 function gastoActivoEnMes(gasto) {
-    return window.FinanceLogic.gastoActivoEnMes(gasto);
+    const logic = getFinanceLogic();
+    if (logic) return logic.gastoActivoEnMes(gasto);
+    if (!gasto) return false;
+    if (gasto.esGastoMensual) return true;
+    const cuotasAPagar = gasto.cuotasAPagar || 0;
+    if (!cuotasAPagar) return false;
+    if (!gasto.fechaInicio) return true;
+    const start = new Date(gasto.fechaInicio);
+    if (Number.isNaN(start.getTime())) return true;
+    const today = new Date();
+    const mesActual = new Date(today.getFullYear(), today.getMonth(), 1);
+    const mesInicio = new Date(start.getFullYear(), start.getMonth(), 1);
+    if (mesInicio > mesActual) return false;
+    return calcularCuotasPagadas(gasto.fechaInicio) <= cuotasAPagar;
 }
 
 function calcularRecuperarTerceros() {
-    return window.FinanceLogic.calcularRecuperarTerceros(financeData.gastos, financeData.tipoCambio || 1450);
+    const logic = getFinanceLogic();
+    const gastos = financeData.gastos || [];
+    if (logic) return logic.calcularRecuperarTerceros(gastos, financeData.tipoCambio || 1450);
+    let totalARS = 0, totalUSD = 0;
+    gastos.forEach(g => {
+        normalizarGastoCompartido(g);
+        if (!g.esCompartido || !gastoActivoEnMes(g)) return;
+        const monto = parseFloat(g.montoTercero) || 0;
+        if (monto <= 0) return;
+        if (g.moneda === 'USD') totalUSD += monto;
+        else totalARS += monto;
+    });
+    const tc = financeData.tipoCambio || 1450;
+    return { totalARS, totalUSD, totalARSCompleto: totalARS + totalUSD * tc };
 }
 
 function agruparDeudasTerceros() {
-    return window.FinanceLogic.agruparDeudasTerceros(financeData.gastos);
+    const logic = getFinanceLogic();
+    const gastos = financeData.gastos || [];
+    if (logic) return logic.agruparDeudasTerceros(gastos);
+    return [];
 }
 
 function formatMontoARS(monto) {
@@ -522,8 +689,11 @@ function renderGastoCompartidoCheckbox(index, gasto) {
 function calcularFechaFin(fechaInicio, cuotasAPagar) {
     if (!fechaInicio || !cuotasAPagar || cuotasAPagar <= 0) return '';
     
-    const fecha = window.FinanceLogic.parseLocalDate(fechaInicio);
-    if (!fecha) return '';
+    const logic = getFinanceLogic();
+    const fecha = logic && logic.parseLocalDate
+        ? logic.parseLocalDate(fechaInicio)
+        : new Date(fechaInicio);
+    if (!fecha || Number.isNaN(fecha.getTime())) return '';
     const diaOriginal = fecha.getDate();
     fecha.setMonth(fecha.getMonth() + parseInt(cuotasAPagar));
     
@@ -540,7 +710,14 @@ function calcularFechaFin(fechaInicio, cuotasAPagar) {
 
 // Función helper para calcular cuotas pagadas basándose en fecha inicio y fecha actual
 function calcularCuotasPagadas(fechaInicio) {
-    return window.FinanceLogic.calcularCuotasPagadas(fechaInicio);
+    const logic = getFinanceLogic();
+    if (logic) return logic.calcularCuotasPagadas(fechaInicio);
+    if (!fechaInicio) return 0;
+    const today = new Date();
+    const start = new Date(fechaInicio);
+    if (Number.isNaN(start.getTime())) return 0;
+    const diffMeses = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
+    return Math.max(0, diffMeses + 1);
 }
 
 function renderGastos() {
@@ -1155,17 +1332,49 @@ function removeCuota(index) {
 }
 
 // Herramientas
+function obtenerMejorBrutoParaAguinaldo() {
+    const bruto = parseFloat(financeData.sueldo?.bruto) || 0;
+    // Modo depósito: bruto = (depósito − bono no remunerativo) / 0,83
+    if (financeData.sueldo?.sueldoNetoDirecto) {
+        const d = getDesgloseSueldoActual();
+        if (d.brutoEstimado > 0) {
+            const bonoTxt = d.bonoNoRemunerativo > 0
+                ? ` Restamos bono no remunerativo $${Math.round(d.bonoNoRemunerativo).toLocaleString()}.`
+                : '';
+            return {
+                valor: Math.round(d.brutoEstimado),
+                estimado: true,
+                hint: `Desde depósito $${Math.round(d.deposito).toLocaleString()}.${bonoTxt} Base SAC ≈ bruto remunerativo.`
+            };
+        }
+    }
+    if (bruto > 0) {
+        return { valor: bruto, estimado: false, hint: 'Tomado de tu sueldo bruto en Ingresos.' };
+    }
+    return { valor: 0, estimado: false, hint: 'Cargá el mejor sueldo bruto del semestre (Ley 23.041).' };
+}
+
 function renderHerramientas() {
     // Inicializar el input de feriado con el sueldo bruto actual
     const inputFeriadoBruto = document.getElementById('input-feriado-bruto');
+    const baseBruto = obtenerMejorBrutoParaAguinaldo().valor || financeData.sueldo.bruto || 0;
     if (inputFeriadoBruto && !inputFeriadoBruto.value) {
-        inputFeriadoBruto.value = financeData.sueldo.bruto || 0;
+        inputFeriadoBruto.value = baseBruto || 0;
     }
     
     // Inicializar tipo de cambio en calculadora de dólar
     const inputCalcDolarTC = document.getElementById('input-calc-dolar-tc');
-    if (inputCalcDolarTC && !inputCalcDolarTC.value) {
+    if (inputCalcDolarTC) {
         inputCalcDolarTC.value = financeData.tipoCambio || 1450;
+    }
+
+    const inputAguinaldoBruto = document.getElementById('input-aguinaldo-bruto');
+    if (inputAguinaldoBruto) {
+        const base = obtenerMejorBrutoParaAguinaldo();
+        // Con sueldo neto directo, siempre resincronizar la base estimada
+        if (base.valor > 0 && (financeData.sueldo?.sueldoNetoDirecto || !inputAguinaldoBruto.value || parseFloat(inputAguinaldoBruto.value) === 0)) {
+            inputAguinaldoBruto.value = base.valor;
+        }
     }
     
     calculateFeriado();
@@ -1176,8 +1385,8 @@ function renderHerramientas() {
     calculateImpuestosTarjeta();
     renderFeriados();
     
-    // Cargar dólar oficial al mostrar la sección
-    actualizarDolarOficial();
+    // Cargar dólar oficial y sincronizar tipo de cambio de la app
+    actualizarDolarOficial(true);
 }
 
 function calculateFeriado() {
@@ -1192,36 +1401,49 @@ function calculateFeriado() {
 }
 
 function calculateAguinaldo() {
-    // Calcular sueldo neto igual que en calculateSueldo
-    const bruto = financeData.sueldo.bruto || 0;
-    let ingresosTotales = bruto;
-    
-    financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
-        const valor = Math.abs(item.monto);
-        if (item.tipo === 'porcentaje') ingresosTotales += (bruto * valor / 100);
-        else ingresosTotales += valor;
-    });
+    const logic = getFinanceLogic();
+    const inputBruto = document.getElementById('input-aguinaldo-bruto');
+    const inputDias = document.getElementById('input-aguinaldo-dias');
+    const hintEl = document.getElementById('aguinaldo-bruto-hint');
+    const origenNetoEl = document.getElementById('aguinaldo-neto-origen');
+    const brutoEl = document.getElementById('aguinaldo-result-bruto');
+    const netoEl = document.getElementById('aguinaldo-result');
 
-    let deduccionesTotales = 0;
-    financeData.sueldo.items.forEach(item => {
-        const valor = Math.abs(item.monto);
-        if (item.categoria === 'deduccion') {
-            if (item.tipo === 'porcentaje') deduccionesTotales += (bruto * valor / 100);
-            else deduccionesTotales += valor;
-        } else if (item.categoria === 'fija') {
-            if (item.tipo === 'porcentaje') deduccionesTotales += (ingresosTotales * valor / 100);
-            else deduccionesTotales += valor;
+    const netoOrigen = financeData.sueldo?.sueldoNetoDirecto
+        ? (parseFloat(financeData.sueldo.netoDirecto) || 0)
+        : 0;
+    if (origenNetoEl) {
+        origenNetoEl.textContent = netoOrigen > 0
+            ? `$${Math.round(netoOrigen).toLocaleString()}`
+            : '$0';
+    }
+
+    let mejorBruto = parseFloat(inputBruto?.value);
+    if (!Number.isFinite(mejorBruto) || mejorBruto <= 0) {
+        const base = obtenerMejorBrutoParaAguinaldo();
+        mejorBruto = base.valor;
+        if (inputBruto && mejorBruto > 0 && (!inputBruto.value || parseFloat(inputBruto.value) === 0)) {
+            inputBruto.value = mejorBruto;
         }
-    });
+        if (hintEl) hintEl.textContent = base.hint;
+    } else if (hintEl) {
+        const base = obtenerMejorBrutoParaAguinaldo();
+        hintEl.textContent = base.estimado && Math.round(base.valor) === Math.round(mejorBruto)
+            ? base.hint
+            : 'Base legal: mayor remuneración bruta del semestre (incluye adicionales remunerativos).';
+    }
 
-    const sueldoNeto = ingresosTotales - deduccionesTotales;
-    const aguinaldo = sueldoNeto * 0.5;
-    
-    const netoEl = document.getElementById('aguinaldo-sueldo-neto');
-    const aguinaldoEl = document.getElementById('aguinaldo-result');
-    
-    if (netoEl) netoEl.textContent = `$${Math.round(sueldoNeto).toLocaleString()}`;
-    if (aguinaldoEl) aguinaldoEl.textContent = `$${Math.round(aguinaldo).toLocaleString()}`;
+    const dias = parseFloat(inputDias?.value);
+    const resultado = logic && typeof logic.calcularAguinaldoSAC === 'function'
+        ? logic.calcularAguinaldoSAC({ mejorRemuneracionBruta: mejorBruto, diasTrabajados: dias, aportesPct: 17 })
+        : {
+            sacBruto: ((mejorBruto || 0) / 2) * (Math.min(180, Math.max(0, dias || 180)) / 180),
+            sacNeto: 0
+        };
+    if (!logic) resultado.sacNeto = resultado.sacBruto * 0.83;
+
+    if (brutoEl) brutoEl.textContent = `$${Math.round(resultado.sacBruto).toLocaleString()}`;
+    if (netoEl) netoEl.textContent = `$${Math.round(resultado.sacNeto).toLocaleString()}`;
 }
 
 function calculateDolar() {
@@ -1473,14 +1695,40 @@ function renderFeriados() {
 }
 
 // Dólar Oficial
-async function actualizarDolarOficial() {
+let ultimoDolarOficial = null;
+
+function aplicarDolarOficialAlTipoCambio(valor = ultimoDolarOficial) {
+    const n = Math.round(parseFloat(valor) || 0);
+    if (n <= 0) return;
+    updateExchangeRate(n);
+}
+
+function mostrarDolarOficialUI(valor, aplicarTipoCambio) {
+    const valorEl = document.getElementById('dolar-oficial-valor');
+    const fechaEl = document.getElementById('dolar-oficial-fecha');
+    const btnUsar = document.getElementById('btn-usar-dolar-oficial');
+    const redondeado = Math.round(valor);
+    ultimoDolarOficial = redondeado;
+
+    if (valorEl) valorEl.textContent = `$${redondeado.toLocaleString()}`;
+    if (fechaEl) {
+        const fechaActual = new Date();
+        fechaEl.textContent = `Última actualización: ${fechaActual.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${fechaActual.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    if (btnUsar) btnUsar.style.display = 'inline-block';
+
+    if (aplicarTipoCambio) {
+        aplicarDolarOficialAlTipoCambio(redondeado);
+    }
+}
+
+async function actualizarDolarOficial(aplicarTipoCambio = true) {
     const valorEl = document.getElementById('dolar-oficial-valor');
     const fechaEl = document.getElementById('dolar-oficial-fecha');
     const btnEl = document.getElementById('btn-actualizar-dolar');
     
     if (!valorEl || !fechaEl) return;
     
-    // Mostrar estado de carga
     if (btnEl) {
         btnEl.disabled = true;
         btnEl.textContent = 'Cargando...';
@@ -1488,11 +1736,9 @@ async function actualizarDolarOficial() {
     valorEl.textContent = 'Cargando...';
     
     try {
-        // Intentar con API de DolarSi
         const response = await fetch('https://www.dolarsi.com/api/api.php?type=valoresprincipales');
         const data = await response.json();
         
-        // Buscar el dólar oficial (Oficial)
         const dolarOficial = data.find(item => 
             item.casa && (
                 item.casa.nombre === 'Oficial' || 
@@ -1507,9 +1753,7 @@ async function actualizarDolarOficial() {
             const valorPromedio = valorCompra > 0 && valorVenta > 0 ? (valorCompra + valorVenta) / 2 : (valorCompra || valorVenta);
             
             if (valorPromedio > 0) {
-                valorEl.textContent = `$${Math.round(valorPromedio).toLocaleString()}`;
-                const fechaActual = new Date();
-                fechaEl.textContent = `Última actualización: ${fechaActual.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${fechaActual.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
+                mostrarDolarOficialUI(valorPromedio, aplicarTipoCambio);
             } else {
                 throw new Error('Valor no disponible');
             }
@@ -1519,16 +1763,12 @@ async function actualizarDolarOficial() {
     } catch (error) {
         console.error('Error al obtener dólar oficial:', error);
         
-        // Intentar con API alternativa (Bluelytics)
         try {
             const responseAlt = await fetch('https://api.bluelytics.com.ar/v2/latest');
             const dataAlt = await responseAlt.json();
             
             if (dataAlt.oficial && dataAlt.oficial.value_avg) {
-                const valor = dataAlt.oficial.value_avg;
-                valorEl.textContent = `$${Math.round(valor).toLocaleString()}`;
-                const fechaActual = new Date();
-                fechaEl.textContent = `Última actualización: ${fechaActual.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${fechaActual.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`;
+                mostrarDolarOficialUI(dataAlt.oficial.value_avg, aplicarTipoCambio);
             } else {
                 throw new Error('API alternativa no disponible');
             }
@@ -1536,6 +1776,8 @@ async function actualizarDolarOficial() {
             console.error('Error con API alternativa:', errorAlt);
             valorEl.textContent = 'Error al cargar';
             fechaEl.textContent = 'No disponible';
+            const btnUsar = document.getElementById('btn-usar-dolar-oficial');
+            if (btnUsar) btnUsar.style.display = 'none';
         }
     } finally {
         if (btnEl) {
@@ -1558,6 +1800,15 @@ function sincronizarDatosActivos() {
             if (netoInput && netoInput.value !== '') {
                 financeData.sueldo.netoDirecto = parseFloat(netoInput.value) || 0;
             }
+            const bonoCheck = document.getElementById('checkbox-bono-no-remunerativo');
+            const bonoInput = document.getElementById('input-sueldo-bono-no-remunerativo');
+            if (bonoCheck) financeData.sueldo.tieneBonoNoRemunerativo = !!bonoCheck.checked;
+            if (financeData.sueldo.tieneBonoNoRemunerativo && bonoInput && bonoInput.value !== '') {
+                financeData.sueldo.bonoNoRemunerativo = Math.max(0, parseFloat(bonoInput.value) || 0);
+            } else if (!financeData.sueldo.tieneBonoNoRemunerativo) {
+                financeData.sueldo.bonoNoRemunerativo = 0;
+            }
+            actualizarDesgloseSueldoDesdeDeposito();
         } else {
             const brutoInput = document.getElementById('input-sueldo-bruto');
             if (brutoInput && brutoInput.value !== '') {
@@ -1585,97 +1836,30 @@ function refrescarDashboard() {
 }
 
 function updateDashboard() {
-    // Profile info removed from header
-
-    // Calcular gastos mensuales (gastos mensuales + monto por mes de gastos en cuotas)
-    let totalGastosARS = 0;
-    financeData.gastos.forEach(d => {
-        const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        if (d.esGastoMensual) {
-            // Para gastos mensuales, sumar el monto mensual
-            totalGastosARS += d.total * factor;
-        } else {
-            // Para gastos en cuotas, usar el monto por mes (no el restante)
-            const cuotasAPagar = d.cuotasAPagar || 0;
-            let montoPorMes = d.montoPorMes;
-            if (!montoPorMes || montoPorMes === 0) {
-                montoPorMes = cuotasAPagar > 0 ? (d.total / cuotasAPagar) : 0;
-            }
-            totalGastosARS += montoPorMes * factor;
-        }
-    });
-    
-    // Calcular total de ingresos para el dashboard
-    let totalIngresos = 0;
-    let sueldoNeto = 0;
-    
-    if (financeData.sueldo.sueldoNetoDirecto) {
-        // Si está en modo sueldo neto directo
-        sueldoNeto = financeData.sueldo.netoDirecto || 0;
-        // Para ingresos, sumar el neto directo + ingresos adicionales
-        totalIngresos = sueldoNeto;
-        if (financeData.sueldo.items) {
-            financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
-                const valor = Math.abs(parseFloat(item.monto) || 0);
-                if (item.tipo === 'monto') {
-                    totalIngresos += valor;
-                } else if (item.tipo === 'porcentaje') {
-                    totalIngresos += (sueldoNeto * valor / 100);
-                }
-            });
-        }
-    } else {
-        // Calcular normalmente
-        const bruto = financeData.sueldo.bruto || 0;
-        
-        // Sumar conceptos que se suman al básico
-        let conceptosSumanTotal = 0;
-        if (financeData.sueldo.conceptosSuman) {
-            financeData.sueldo.conceptosSuman.forEach(concepto => {
-                conceptosSumanTotal += parseFloat(concepto.monto) || 0;
-            });
-        }
-        const brutoConConceptos = bruto + conceptosSumanTotal;
-        
-        // Total de ingresos incluye: bruto + conceptos + ingresos adicionales
-        totalIngresos = brutoConConceptos;
-        if (financeData.sueldo.items) {
-            financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
-                const valor = Math.abs(parseFloat(item.monto) || 0);
-                if (item.tipo === 'monto') {
-                    totalIngresos += valor;
-                } else if (item.tipo === 'porcentaje') {
-                    totalIngresos += (brutoConConceptos * valor / 100);
-                }
-            });
-        }
-
-        // Calcular sueldo neto (para el saldo actual)
-        let ingresosParaNeto = brutoConConceptos; // Sin ingresos adicionales
-        let deduccionesTotales = 0;
-        financeData.sueldo.items.forEach(item => {
-            const valor = Math.abs(item.monto);
-            if (item.categoria === 'deduccion') {
-                if (item.tipo === 'porcentaje') deduccionesTotales += (brutoConConceptos * valor / 100);
-                else deduccionesTotales += valor;
-            } else if (item.categoria === 'fija') {
-                if (item.tipo === 'porcentaje') deduccionesTotales += (ingresosParaNeto * valor / 100);
-                else deduccionesTotales += valor;
-            }
-        });
-
-        sueldoNeto = ingresosParaNeto - deduccionesTotales;
+    financeData = ensureFinanceDataShape(financeData);
+    // Sin FinanceLogic no calculamos: evita el bug histórico de sumar cuotas futuras al mes
+    if (!ensureFinanceLogicLoaded()) {
+        return;
     }
+    const logic = getFinanceLogic();
+    const resumen = logic.calcularDashboardResumen(financeData);
+    const totalGastosARS = resumen.totalGastosARS;
+    const totalIngresos = resumen.totalIngresos;
+    const recuperar = resumen.recuperar;
+    const saldoActual = resumen.saldoActual;
+    const totalGastosCuotasAnualARS = resumen.totalCuotasAnualARS;
+    const ingresoAnual = resumen.ingresoAnual;
+    const saldoAnual = resumen.saldoAnual;
 
-    document.getElementById('summary-total-gastos').innerText = `$${Math.round(totalGastosARS).toLocaleString()}`;
-    document.getElementById('summary-ingresos').innerText = `$${Math.round(totalIngresos).toLocaleString()}`;
+    const elGastos = document.getElementById('summary-total-gastos');
+    const elIngresos = document.getElementById('summary-ingresos');
+    const elRecuperar = document.getElementById('summary-recuperar-terceros');
+    const elSaldo = document.getElementById('summary-saldo-actual');
+    if (elGastos) elGastos.innerText = `$${Math.round(totalGastosARS).toLocaleString()}`;
+    if (elIngresos) elIngresos.innerText = `$${Math.round(totalIngresos).toLocaleString()}`;
+    if (elRecuperar) elRecuperar.innerText = `$${Math.round(recuperar.totalARSCompleto).toLocaleString()}`;
+    if (elSaldo) elSaldo.innerText = `$${Math.round(saldoActual).toLocaleString()}`;
 
-    const recuperar = calcularRecuperarTerceros();
-    const gastoRealPropio = totalGastosARS - recuperar.totalARSCompleto;
-    // Usar ingresos del mes (incluye extras como aguinaldo), no solo el sueldo base
-    const saldoActual = totalIngresos - gastoRealPropio;
-
-    document.getElementById('summary-recuperar-terceros').innerText = `$${Math.round(recuperar.totalARSCompleto).toLocaleString()}`;
     const recuperarUsdEl = document.getElementById('summary-recuperar-terceros-usd');
     if (recuperarUsdEl) {
         if (recuperar.totalUSD > 0) {
@@ -1686,40 +1870,6 @@ function updateDashboard() {
             recuperarUsdEl.textContent = '';
         }
     }
-    document.getElementById('summary-saldo-actual').innerText = `$${Math.round(saldoActual).toLocaleString()}`;
-
-    // Gastos anuales: solo gastos en cuotas (no proyectar mensuales × 12 en esta tarjeta)
-    let totalGastosCuotasAnualARS = 0;
-    financeData.gastos.forEach(d => {
-        if (d.esGastoMensual) return;
-        const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        const cuotasAPagar = d.cuotasAPagar || 0;
-        let montoPorMes = d.montoPorMes;
-        if (!montoPorMes || montoPorMes === 0) {
-            montoPorMes = cuotasAPagar > 0 ? (d.total / cuotasAPagar) : 0;
-        }
-        const cuotasParaAnual = Math.min(cuotasAPagar, 12);
-        totalGastosCuotasAnualARS += (montoPorMes * cuotasParaAnual) * factor;
-    });
-
-    // Ingreso anual: sueldo recurrente × 12 (+ aguinaldos/extras si están como ítems separados)
-    let ingresoAnual = sueldoNeto * 12;
-    if (financeData.sueldo.items) {
-        financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
-            const valor = Math.abs(parseFloat(item.monto) || 0);
-            if (item.tipo !== 'monto' || valor <= 0) return;
-            const nombre = (item.nombre || '').toLowerCase();
-            if (nombre.includes('aguinaldo') || nombre.includes('sac')) {
-                ingresoAnual += valor;
-            } else if (!financeData.sueldo.sueldoNetoDirecto) {
-                ingresoAnual += valor * 12;
-            }
-        });
-    }
-
-    // Proyección anual de bolsillo: mismo criterio que Saldo Actual, proyectado a 12 meses
-    const gastosAnualesNetosBolsillo = gastoRealPropio * 12;
-    const saldoAnual = ingresoAnual - gastosAnualesNetosBolsillo;
 
     document.getElementById('summary-gastos-anual').innerText = `$${Math.round(totalGastosCuotasAnualARS).toLocaleString()}`;
     document.getElementById('summary-ingreso-anual').innerText = `$${Math.round(ingresoAnual).toLocaleString()}`;
@@ -1779,12 +1929,23 @@ function updateDashboard() {
     let ingresosHTML = '';
     
     if (financeData.sueldo.sueldoNetoDirecto) {
-        // Si está en modo sueldo neto directo, mostrar el sueldo neto como base
-        const sueldoNeto = financeData.sueldo.netoDirecto || 0;
+        const d = getDesgloseSueldoActual();
         ingresosHTML = `
             <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
-                <span style="color: var(--text-secondary);">Sueldo Base</span>
-                <span style="font-weight: 600;">$${Math.round(sueldoNeto).toLocaleString()}</span>
+                <span style="color: var(--text-secondary);">Depósito bancario</span>
+                <span style="font-weight: 600;">$${Math.round(d.deposito).toLocaleString()}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                <span style="color: var(--text-secondary);">↳ Neto salarial</span>
+                <span style="font-weight: 600;">$${Math.round(d.netoSalarial).toLocaleString()}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                <span style="color: var(--text-secondary);">↳ Bono no remunerativo</span>
+                <span style="font-weight: 600;">$${Math.round(d.bonoNoRemunerativo || 0).toLocaleString()}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                <span style="color: var(--text-secondary);">Bruto estimado</span>
+                <span style="font-weight: 600;">$${Math.round(d.brutoEstimado).toLocaleString()}</span>
             </div>
         `;
         
@@ -1858,12 +2019,73 @@ function updateDashboard() {
     
     ingresosDash.innerHTML = ingresosHTML;
 
+    renderResumenPorPersona();
     renderCuentasPorCobrar();
+}
+
+function renderResumenPorPersona() {
+    const body = document.getElementById('dashboard-resumen-persona-body');
+    const footer = document.getElementById('dashboard-resumen-persona-footer');
+    if (!body) return;
+
+    const logic = getFinanceLogic();
+    const nombrePropio = (financeData.profile && financeData.profile.nombre)
+        ? `Vos (${financeData.profile.nombre})`
+        : 'Vos';
+
+    let resumen;
+    if (logic && typeof logic.resumenGastosPorPersona === 'function') {
+        resumen = logic.resumenGastosPorPersona(
+            financeData.gastos || [],
+            financeData.tipoCambio || 1450,
+            new Date(),
+            nombrePropio
+        );
+    } else {
+        resumen = { personas: [], totalMesARS: 0, totalPropioARS: 0, totalRecuperarARS: 0 };
+    }
+
+    if (!resumen.personas.length) {
+        body.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-secondary); padding: 2rem;">Sin gastos activos este mes</td></tr>';
+        if (footer) footer.innerHTML = '';
+        return;
+    }
+
+    const total = resumen.totalMesARS || 0;
+    body.innerHTML = resumen.personas.map(p => {
+        const pct = total > 0 ? Math.round((p.totalARS / total) * 100) : 0;
+        const peso = p.esPropio ? 'font-weight: 700;' : 'font-weight: 600;';
+        return `<tr>
+            <td style="${peso}">${p.nombre}</td>
+            <td style="${peso}">$${Math.round(p.totalARS).toLocaleString()}</td>
+            <td>${pct}%</td>
+        </tr>`;
+    }).join('') + `<tr style="border-top: 1px solid var(--border-color);">
+        <td style="font-weight: 700;">Total del mes</td>
+        <td style="font-weight: 700;">$${Math.round(resumen.totalMesARS).toLocaleString()}</td>
+        <td>100%</td>
+    </tr>`;
+
+    if (footer) {
+        footer.innerHTML = `
+            <div style="display: flex; justify-content: space-between; gap: 1rem;">
+                <span style="color: var(--text-secondary);">A recuperar de terceros</span>
+                <strong>$${Math.round(resumen.totalRecuperarARS).toLocaleString()}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; gap: 1rem;">
+                <span style="color: var(--text-secondary);">Costo neto tuyo</span>
+                <strong>$${Math.round(resumen.totalPropioARS).toLocaleString()}</strong>
+            </div>
+        `;
+    }
 }
 
 // Import/Export
 function parseExcelBool(value) {
-    return window.FinanceLogic.parseExcelBool(value);
+    const logic = getFinanceLogic();
+    if (logic) return logic.parseExcelBool(value);
+    if (value === true || value === 1 || value === '1' || value === 'true' || value === 'TRUE' || value === 'Sí' || value === 'Si') return true;
+    return false;
 }
 
 function exportJSON() {
@@ -1876,8 +2098,140 @@ function exportJSON() {
     a.click();
 }
 
-function importJSON() {
-    document.getElementById('import-file').click();
+// Modo de importación JSON: 'replace' (pisar todo) | 'merge' (agregar/actualizar)
+let pendingImportMode = 'replace';
+
+function importJSON(mode) {
+    pendingImportMode = mode === 'merge' ? 'merge' : 'replace';
+    const input = document.getElementById('import-file');
+    if (!input) return;
+    // Permite reimportar el mismo archivo (si no, onchange no se dispara)
+    input.value = '';
+    input.click();
+}
+
+function claveGastoImport(gasto) {
+    return `${(gasto.nombre || '').trim().toLowerCase()}|${gasto.moneda || 'ARS'}|${gasto.esGastoMensual ? 'M' : 'C'}`;
+}
+
+function mergeListaPorClave(actuales, entrantes, getKey) {
+    const mapa = new Map();
+    (actuales || []).forEach((item, index) => mapa.set(getKey(item), index));
+    let agregados = 0;
+    let actualizados = 0;
+    const resultado = [...(actuales || [])];
+
+    (entrantes || []).forEach(item => {
+        const key = getKey(item);
+        if (!key || key.startsWith('|')) {
+            resultado.push(item);
+            agregados++;
+            return;
+        }
+        if (mapa.has(key)) {
+            const idx = mapa.get(key);
+            resultado[idx] = { ...resultado[idx], ...item };
+            actualizados++;
+        } else {
+            mapa.set(key, resultado.length);
+            resultado.push(item);
+            agregados++;
+        }
+    });
+
+    return { lista: resultado, agregados, actualizados };
+}
+
+function sueldoImportTieneIngresos(sueldo) {
+    if (!sueldo || typeof sueldo !== 'object') return false;
+    if ((parseFloat(sueldo.netoDirecto) || 0) > 0) return true;
+    if ((parseFloat(sueldo.bruto) || 0) > 0) return true;
+    if ((parseFloat(sueldo.bonoNoRemunerativo) || parseFloat(sueldo.conectividad) || 0) > 0) return true;
+    if (Array.isArray(sueldo.items) && sueldo.items.length > 0) return true;
+    if (Array.isArray(sueldo.conceptosSuman) && sueldo.conceptosSuman.length > 0) return true;
+    return false;
+}
+
+function mergeSueldoData(currentSueldo, importedSueldo) {
+    const current = ensureFinanceDataShape({ sueldo: currentSueldo }).sueldo;
+    const imported = ensureFinanceDataShape({ sueldo: importedSueldo }).sueldo;
+    if (!sueldoImportTieneIngresos(imported)) {
+        return { sueldo: current, actualizado: false };
+    }
+    const merged = {
+        ...current,
+        ...imported,
+        items: Array.isArray(imported.items) ? imported.items : (current.items || []),
+        conceptosSuman: Array.isArray(imported.conceptosSuman) ? imported.conceptosSuman : (current.conceptosSuman || [])
+    };
+    // Normalizar bono no remunerativo post-merge
+    if (merged.tieneBonoNoRemunerativo == null) {
+        merged.tieneBonoNoRemunerativo = (parseFloat(merged.bonoNoRemunerativo) || parseFloat(merged.conectividad) || 0) > 0;
+    }
+    if (merged.bonoNoRemunerativo == null) {
+        merged.bonoNoRemunerativo = parseFloat(merged.conectividad) || 0;
+    }
+    if (!merged.tieneBonoNoRemunerativo) merged.bonoNoRemunerativo = 0;
+    return { sueldo: merged, actualizado: true };
+}
+
+/**
+ * Fusiona un JSON importado con los datos actuales.
+ * Actualiza ingresos/sueldo si el archivo trae datos.
+ * Combina gastos y cuotas por clave (nombre + moneda + tipo).
+ */
+function mergeFinanceData(currentData, importedData) {
+    const current = ensureFinanceDataShape(currentData);
+    const imported = ensureFinanceDataShape(importedData);
+    const sueldoMerge = mergeSueldoData(current.sueldo, imported.sueldo);
+
+    const merged = ensureFinanceDataShape({
+        profile: { ...imported.profile, ...current.profile },
+        tipoCambio: imported.tipoCambio || current.tipoCambio || 1450,
+        sueldo: sueldoMerge.sueldo,
+        gastos: [],
+        cuotas: [],
+        historial: [...(current.historial || [])]
+    });
+
+    // Si el perfil actual está vacío, completar con el importado
+    ['nombre', 'identificacion', 'empleador'].forEach(campo => {
+        if (!merged.profile[campo] && imported.profile[campo]) {
+            merged.profile[campo] = imported.profile[campo];
+        }
+    });
+
+    const gastosMerge = mergeListaPorClave(current.gastos, imported.gastos, claveGastoImport);
+    merged.gastos = gastosMerge.lista.map(g => normalizarGastoCompartido({ ...g }));
+
+    const cuotasMerge = mergeListaPorClave(
+        current.cuotas,
+        imported.cuotas,
+        c => `${(c.nombre || '').trim().toLowerCase()}|${c.moneda || 'ARS'}`
+    );
+    merged.cuotas = cuotasMerge.lista;
+
+    if (Array.isArray(imported.historial) && imported.historial.length) {
+        merged.historial = merged.historial.concat(imported.historial);
+    }
+    merged.historial.push({
+        fecha: new Date().toISOString().slice(0, 10),
+        nota: `Importación fusionada: +${gastosMerge.agregados} gastos, ~${gastosMerge.actualizados} actualizados; ingresos ${sueldoMerge.actualizado ? 'actualizados' : 'conservados'}.`
+    });
+
+    return {
+        data: merged,
+        stats: {
+            gastosAgregados: gastosMerge.agregados,
+            gastosActualizados: gastosMerge.actualizados,
+            gastosTotales: merged.gastos.length,
+            compartidos: merged.gastos.filter(g => g.esCompartido).length,
+            cuotasAgregadas: cuotasMerge.agregados,
+            cuotasActualizadas: cuotasMerge.actualizados,
+            sueldoActualizado: sueldoMerge.actualizado,
+            sueldoConservado: !sueldoMerge.actualizado
+        }
+    };
 }
 
 function handleFileImport(event) {
@@ -1886,16 +2240,58 @@ function handleFileImport(event) {
     const reader = new FileReader();
     reader.onload = (e) => {
         try {
-            const imported = JSON.parse(e.target.result);
-            financeData = imported;
-            if (financeData.gastos) {
-                financeData.gastos.forEach(g => normalizarGastoCompartido(g));
+            const raw = e.target.result;
+            const text = typeof raw === 'string' && raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw;
+            const imported = ensureFinanceDataShape(JSON.parse(text));
+            const modo = pendingImportMode === 'merge' ? 'merge' : 'replace';
+            let stats;
+
+            if (modo === 'merge') {
+                const result = mergeFinanceData(financeData, imported);
+                financeData = result.data;
+                stats = result.stats;
+            } else {
+                // Importar clásico: pisa todo (útil para consultar una versión vieja)
+                financeData = imported;
+                stats = {
+                    gastosTotales: financeData.gastos.length,
+                    compartidos: financeData.gastos.filter(g => g.esCompartido).length,
+                    gastosAgregados: financeData.gastos.length,
+                    gastosActualizados: 0,
+                    cuotasAgregadas: (financeData.cuotas || []).length,
+                    cuotasActualizadas: 0,
+                    sueldoConservado: false
+                };
             }
-            saveData();
+
+            localStorage.setItem('financeData', JSON.stringify(financeData));
             renderAll();
-            alert('Datos importados correctamente');
+            updateDashboard();
+
+            if (modo === 'merge') {
+                alert(
+                    `Datos agregados / actualizados.\n\n` +
+                    `Ingresos: ${stats.sueldoActualizado ? 'actualizados desde el JSON' : 'sin cambios (el archivo no traía sueldo)'}\n` +
+                    `Gastos agregados: ${stats.gastosAgregados}\n` +
+                    `Gastos actualizados: ${stats.gastosActualizados}\n` +
+                    `Total gastos ahora: ${stats.gastosTotales}\n` +
+                    `A cobrar / compartidos: ${stats.compartidos}\n\n` +
+                    `Si el Dashboard no refleja cambios, tocá "Actualizar".`
+                );
+            } else {
+                alert(
+                    `Datos reemplazados (importación completa).\n\n` +
+                    `Ingresos: cargados\n` +
+                    `Gastos: ${stats.gastosTotales}\n` +
+                    `Compartidos / a cobrar: ${stats.compartidos}\n\n` +
+                    `Si el Dashboard sigue en $0, tocá "Actualizar".`
+                );
+            }
         } catch (err) {
-            alert('Error al importar JSON');
+            console.error('Error al importar JSON:', err);
+            alert('Error al importar JSON: ' + (err && err.message ? err.message : 'archivo inválido'));
+        } finally {
+            event.target.value = '';
         }
     };
     reader.readAsText(file);
@@ -2153,7 +2549,13 @@ function exportExcel() {
 function limpiarSueldo() {
     if (confirm('¿Estás seguro de que deseas limpiar todos los datos de Sueldo? Esta acción no se puede deshacer.')) {
         financeData.sueldo.bruto = 0;
+        financeData.sueldo.brutoEstimado = 0;
+        financeData.sueldo.netoDirecto = 0;
+        financeData.sueldo.bonoNoRemunerativo = 0;
+        financeData.sueldo.tieneBonoNoRemunerativo = false;
+        financeData.sueldo.conectividad = 0;
         financeData.sueldo.items = [];
+        financeData.sueldo.conceptosSuman = [];
         saveData();
         renderSueldo();
         updateDashboard();
@@ -2187,6 +2589,8 @@ function limpiarHerramientas() {
         // Limpiar inputs de calculadoras
         const inputFeriadoBruto = document.getElementById('input-feriado-bruto');
         const inputFeriadoPorcentaje = document.getElementById('input-feriado-porcentaje');
+        const inputAguinaldoBruto = document.getElementById('input-aguinaldo-bruto');
+        const inputAguinaldoDias = document.getElementById('input-aguinaldo-dias');
         const inputCalcDolarTC = document.getElementById('input-calc-dolar-tc');
         const inputUsdArs = document.getElementById('input-usd-ars');
         const inputArsUsd = document.getElementById('input-ars-usd');
@@ -2198,6 +2602,8 @@ function limpiarHerramientas() {
         
         if (inputFeriadoBruto) inputFeriadoBruto.value = '';
         if (inputFeriadoPorcentaje) inputFeriadoPorcentaje.value = '139';
+        if (inputAguinaldoBruto) inputAguinaldoBruto.value = '';
+        if (inputAguinaldoDias) inputAguinaldoDias.value = '180';
         if (inputCalcDolarTC) inputCalcDolarTC.value = financeData.tipoCambio || 1450;
         if (inputUsdArs) inputUsdArs.value = '';
         if (inputArsUsd) inputArsUsd.value = '';
@@ -2209,6 +2615,7 @@ function limpiarHerramientas() {
         
         // Recalcular para mostrar valores en 0
         calculateFeriado();
+        calculateAguinaldo();
         calculateDolar();
         calculatePorcentaje();
         calculateImpuestosTarjeta();
