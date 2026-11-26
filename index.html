@@ -21,7 +21,7 @@
                 <img src="https://img.icons8.com/ios/100/money-with-wings.png" alt="Finance Pro Logo" style="width: 32px; height: 32px; border-radius: 8px; filter: brightness(0) invert(1);" />
                 <h1 class="mobile-logo-title">Finance Pro</h1>
             </div>
-            <button class="mobile-menu-toggle" onclick="toggleMobileMenu()" id="mobile-menu-btn">☰</button>
+            <button class="mobile-menu-toggle" onclick="toggleMobileMenu()" id="mobile-menu-btn" aria-label="Abrir menú" aria-expanded="false">☰</button>
         </div>
     </header>
     <div class="mobile-menu-overlay" id="mobile-menu-overlay" onclick="toggleMobileMenu()"></div>
@@ -34,27 +34,27 @@
         </div>
         <nav>
             <ul class="sidebar-nav">
-                <li><a href="#" onclick="showSection('dashboard')" id="nav-dashboard" class="active">
+                <li><a href="#dashboard" onclick="return navigateTo('dashboard', event)" id="nav-dashboard" class="active">
                     <span class="nav-icon"><img src="https://img.icons8.com/external-flatart-icons-outline-flatarticons/64/external-finance-marketing-growth-flatart-icons-outline-flatarticons.png" alt="Dashboard" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
                     <span class="nav-text">Dashboard</span>
                 </a></li>
-                <li><a href="#" onclick="showSection('sueldo')" id="nav-sueldo">
+                <li><a href="#sueldo" onclick="return navigateTo('sueldo', event)" id="nav-sueldo">
                     <span class="nav-icon"><img src="https://img.icons8.com/external-kosonicon-outline-kosonicon/64/external-finance-insurance-kosonicon-outline-kosonicon.png" alt="Ingresos" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
                     <span class="nav-text">Ingresos</span>
                 </a></li>
-                <li><a href="#" onclick="showSection('gastos')" id="nav-gastos">
+                <li><a href="#gastos" onclick="return navigateTo('gastos', event)" id="nav-gastos">
                     <span class="nav-icon"><img src="https://img.icons8.com/ios/100/bank-card-back-side--v1.png" alt="Gastos" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
                     <span class="nav-text">Gastos</span>
                 </a></li>
-                <li><a href="#" onclick="showSection('cuotas')" id="nav-cuotas">
+                <li><a href="#cuotas" onclick="return navigateTo('cuotas', event)" id="nav-cuotas">
                     <span class="nav-icon"><img src="https://img.icons8.com/ios/100/reminders.png" alt="Cuotas" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
                     <span class="nav-text">Cuotas</span>
                 </a></li>
-                <li><a href="#" onclick="showSection('herramientas')" id="nav-herramientas">
+                <li><a href="#herramientas" onclick="return navigateTo('herramientas', event)" id="nav-herramientas">
                     <span class="nav-icon"><img src="https://img.icons8.com/ios/100/open-end-wrench.png" alt="Herramientas" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
                     <span class="nav-text">Herramientas</span>
                 </a></li>
-                <li><a href="#" onclick="showSection('configuracion')" id="nav-configuracion">
+                <li><a href="#configuracion" onclick="return navigateTo('configuracion', event)" id="nav-configuracion">
                     <span class="nav-icon"><img src="https://img.icons8.com/ios/100/settings.png" alt="Configuración" style="width: 24px; height: 24px; filter: brightness(0) invert(1);" /></span>
                     <span class="nav-text">Configuración</span>
                 </a></li>
@@ -90,9 +90,14 @@
         <div class="container">
             <!-- Dashboard Section -->
             <section id="dashboard" class="content-section active">
-                <div class="header-section">
-                    <h2>Dashboard</h2>
-                    <p>Resumen general de tu estado financiero.</p>
+                <div class="header-section" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+                    <div>
+                        <h2>Dashboard</h2>
+                        <p>Resumen general de tu estado financiero.</p>
+                    </div>
+                    <button onclick="refrescarDashboard()" class="btn-secondary" title="Actualizar datos del dashboard" id="btn-refrescar-dashboard">
+                        ↻ Actualizar
+                    </button>
                 </div>
                 
                 <div class="stats-grid">
@@ -105,8 +110,14 @@
                         <div class="stat-value large" id="summary-ingresos">$0</div>
                     </div>
                     <div class="stat-card">
+                        <div class="stat-label">A Recuperar de Terceros</div>
+                        <div class="stat-value large" id="summary-recuperar-terceros">$0</div>
+                        <div class="stat-sublabel" id="summary-recuperar-terceros-usd" style="display: none;"></div>
+                    </div>
+                    <div class="stat-card">
                         <div class="stat-label">Saldo Actual</div>
                         <div class="stat-value large" id="summary-saldo-actual">$0</div>
+                        <div class="stat-sublabel" style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">Neto de bolsillo (gastos − recuperos)</div>
                     </div>
                 </div>
 
@@ -114,6 +125,7 @@
                     <div class="stat-card">
                         <div class="stat-label">Gastos Anual</div>
                         <div class="stat-value large" id="summary-gastos-anual">$0</div>
+                        <div class="stat-sublabel" style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">Solo gastos en cuotas (no mensuales)</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Ingreso de Sueldo Anual</div>
@@ -122,6 +134,7 @@
                     <div class="stat-card">
                         <div class="stat-label">Saldo Total Después de Resto Anual</div>
                         <div class="stat-value large" id="summary-saldo-anual">$0</div>
+                        <div class="stat-sublabel" style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">Proyección: ingreso anual − gasto neto de bolsillo × 12</div>
                     </div>
                 </div>
 
@@ -279,6 +292,7 @@
                                 <th>Finalización</th>
                                 <th>Restante (ARS)</th>
                                 <th>Total</th>
+                                <th>Compartido</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -303,6 +317,7 @@
                                 <th>Nombre</th>
                                 <th>Moneda</th>
                                 <th>Monto a Pagar por Mes</th>
+                                <th>Compartido</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -311,6 +326,27 @@
                     <div style="padding: 1.5rem;">
                         <button onclick="addGastoMensual()" class="btn-add">+ Nuevo Gasto Mensual</button>
                     </div>
+                </div>
+
+                <!-- Cuentas por Cobrar -->
+                <div class="main-card" style="padding: 0;">
+                    <div style="padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <div style="width: 4px; height: 24px; background-color: var(--accent-green); border-radius: 2px;"></div>
+                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Cuentas por Cobrar</h3>
+                        </div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tercero</th>
+                                <th>Monto (ARS)</th>
+                                <th>Monto (USD)</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="cuentas-por-cobrar-body"></tbody>
+                    </table>
                 </div>
             </section>
 
@@ -611,6 +647,7 @@
     </main>
 
     <input type="file" id="import-file" style="display:none" onchange="handleFileImport(event)">
+    <script src="finance-logic.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

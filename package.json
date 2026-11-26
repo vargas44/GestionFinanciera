@@ -1,0 +1,1 @@
+{"name":"gestion-financiera","version":"1.0.0","private":true,"description":"Finance Pro - gestión financiera personal","scripts":{"test":"node --test tests/finance-logic.test.js"}}

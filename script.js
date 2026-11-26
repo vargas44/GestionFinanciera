@@ -56,12 +56,26 @@ function loadData() {
             }
         }
         financeData = parsed;
+        // Migración: campos de gastos compartidos
+        if (financeData.gastos) {
+            financeData.gastos.forEach(g => normalizarGastoCompartido(g));
+        }
     }
 }
 
 function saveData() {
     localStorage.setItem('financeData', JSON.stringify(financeData));
     updateDashboard();
+}
+
+function isMobileViewport() {
+    return window.innerWidth <= 768;
+}
+
+function navigateTo(sectionId, event) {
+    if (event) event.preventDefault();
+    showSection(sectionId);
+    return false;
 }
 
 function showSection(sectionId) {
@@ -72,66 +86,100 @@ function showSection(sectionId) {
     const mappedSectionId = sectionId === 'deudas' ? 'gastos' : sectionId;
     const mappedNavId = sectionId === 'deudas' ? 'gastos' : sectionId;
     
-    document.getElementById(mappedSectionId).classList.add('active');
-    document.getElementById(`nav-${mappedNavId}`).classList.add('active');
+    const sectionEl = document.getElementById(mappedSectionId);
+    const navEl = document.getElementById(`nav-${mappedNavId}`);
+    if (!sectionEl || !navEl) return;
+
+    sectionEl.classList.add('active');
+    navEl.classList.add('active');
     
-    // Cerrar menú móvil al seleccionar una sección (solo en móvil)
-    if (window.innerWidth <= 768) {
-        toggleMobileMenu(false);
+    // Cerrar menú móvil al seleccionar una sección
+    if (isMobileViewport()) {
+        closeMobileMenu();
     }
     
-    if (sectionId === 'cuotas') {
+    if (mappedSectionId === 'dashboard') {
+        updateDashboard();
+    } else if (mappedSectionId === 'cuotas') {
         setTimeout(updateTimelineChart, 100);
-    } else if (sectionId === 'herramientas') {
+    } else if (mappedSectionId === 'herramientas') {
         renderHerramientas();
-    } else if (sectionId === 'configuracion') {
+    } else if (mappedSectionId === 'configuracion') {
         renderConfiguracion();
     }
 }
 
-function toggleMobileMenu(forceState) {
+function setMobileMenuOpen(isOpen) {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('mobile-menu-overlay');
     const btn = document.getElementById('mobile-menu-btn');
-    
-    // Solo funcionar en móvil
-    if (window.innerWidth > 768) {
-        return;
-    }
-    
-    if (forceState !== undefined) {
-        // Forzar estado (cerrar)
-        if (!forceState) {
-            sidebar.classList.remove('active');
-            if (overlay) overlay.classList.remove('active');
-            if (btn) btn.textContent = '☰';
-            document.body.style.overflow = '';
+    if (!sidebar) return;
+
+    if (isOpen) {
+        sidebar.classList.add('active');
+        if (overlay) overlay.classList.add('active');
+        if (btn) {
+            btn.textContent = '✕';
+            btn.setAttribute('aria-expanded', 'true');
         }
+        document.body.classList.add('mobile-menu-open');
+        document.body.style.overflow = 'hidden';
     } else {
-        // Toggle normal
-        const isActive = sidebar.classList.contains('active');
-        if (isActive) {
-            sidebar.classList.remove('active');
-            if (overlay) overlay.classList.remove('active');
-            if (btn) btn.textContent = '☰';
-            document.body.style.overflow = '';
-        } else {
-            sidebar.classList.add('active');
-            if (overlay) overlay.classList.add('active');
-            if (btn) btn.textContent = '✕';
-            document.body.style.overflow = 'hidden';
+        sidebar.classList.remove('active');
+        if (overlay) overlay.classList.remove('active');
+        if (btn) {
+            btn.textContent = '☰';
+            btn.setAttribute('aria-expanded', 'false');
         }
+        document.body.classList.remove('mobile-menu-open');
+        document.body.style.overflow = '';
     }
 }
 
+function closeMobileMenu() {
+    setMobileMenuOpen(false);
+}
+
+function openMobileMenu() {
+    if (!isMobileViewport()) return;
+    setMobileMenuOpen(true);
+}
+
+function toggleMobileMenu(forceState) {
+    // Solo funcionar en móvil
+    if (!isMobileViewport()) {
+        closeMobileMenu();
+        return;
+    }
+
+    if (forceState !== undefined) {
+        setMobileMenuOpen(!!forceState);
+        return;
+    }
+
+    const sidebar = document.getElementById('sidebar');
+    const isActive = sidebar && sidebar.classList.contains('active');
+    setMobileMenuOpen(!isActive);
+}
+
 function toggleSidebar() {
+    // En móvil el logo del sidebar no colapsa: abre/cierra el drawer
+    if (isMobileViewport()) {
+        toggleMobileMenu();
+        return;
+    }
     const sidebar = document.getElementById('sidebar');
     if (sidebar) {
         sidebar.classList.toggle('collapsed');
-        // Guardar preferencia en localStorage
         localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
     }
 }
+
+window.addEventListener('resize', () => {
+    if (!isMobileViewport()) {
+        closeMobileMenu();
+    }
+});
 
 // Rendering functions
 function renderAll() {
@@ -372,31 +420,127 @@ function removeConceptoSuman(index) {
     saveData();
 }
 
+// Gastos compartidos / consumos de terceros (delegado a finance-logic.js)
+function normalizarGastoCompartido(gasto) {
+    return window.FinanceLogic.normalizarGastoCompartido(gasto);
+}
+
+function gastoActivoEnMes(gasto) {
+    return window.FinanceLogic.gastoActivoEnMes(gasto);
+}
+
+function calcularRecuperarTerceros() {
+    return window.FinanceLogic.calcularRecuperarTerceros(financeData.gastos, financeData.tipoCambio || 1450);
+}
+
+function agruparDeudasTerceros() {
+    return window.FinanceLogic.agruparDeudasTerceros(financeData.gastos);
+}
+
+function formatMontoARS(monto) {
+    return monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function copiarRecordatorioDesdeBtn(btn) {
+    copiarRecordatorioTercero(
+        btn.dataset.nombre,
+        parseFloat(btn.dataset.ars) || 0,
+        parseFloat(btn.dataset.usd) || 0
+    );
+}
+
+function copiarRecordatorioTercero(nombre, montoARS, montoUSD) {
+    const tipoCambio = financeData.tipoCambio || 1450;
+    const totalARS = montoARS + montoUSD * tipoCambio;
+    const montoTexto = formatMontoARS(totalARS);
+    const texto = `¡Hola ${nombre}! Te paso el total de la tarjeta de este mes: $${montoTexto}. ¡Gracias!`;
+    navigator.clipboard.writeText(texto).then(() => {
+        const btns = document.querySelectorAll('.btn-copy-reminder');
+        btns.forEach(btn => {
+            if (btn.dataset.nombre === nombre) {
+                const original = btn.textContent;
+                btn.textContent = '¡Copiado!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = original;
+                    btn.classList.remove('copied');
+                }, 2000);
+            }
+        });
+    }).catch(() => {
+        alert('No se pudo copiar al portapapeles. Texto:\n\n' + texto);
+    });
+}
+
+function toggleGastoCompartido(index, checked) {
+    const gasto = financeData.gastos[index];
+    if (!gasto) return;
+    gasto.esCompartido = checked;
+    if (!checked) {
+        gasto.terceroNombre = '';
+        gasto.montoTercero = 0;
+    }
+    renderGastos();
+    saveData();
+}
+
+function renderGastoCompartidoFila(index, gasto, colspan) {
+    normalizarGastoCompartido(gasto);
+    const visible = gasto.esCompartido ? '' : 'none';
+    return `
+        <tr class="gasto-compartido-row" id="gasto-compartido-row-${index}" style="display: ${visible};">
+            <td colspan="${colspan}">
+                <div class="gasto-compartido-fields">
+                    <div class="form-group-inline">
+                        <label>Nombre del Tercero *</label>
+                        <input type="text" value="${gasto.terceroNombre || ''}" placeholder="Ej: MAT, Elva..."
+                            onchange="updateGasto(${index}, 'terceroNombre', this.value)" ${gasto.esCompartido ? 'required' : ''}>
+                    </div>
+                    <div class="form-group-inline">
+                        <label>Monto a recuperar *</label>
+                        <input type="number" value="${gasto.montoTercero || ''}" min="0" step="0.01" placeholder="0.00"
+                            onchange="updateGasto(${index}, 'montoTercero', this.value)" ${gasto.esCompartido ? 'required' : ''}>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+function renderGastoCompartidoCheckbox(index, gasto) {
+    normalizarGastoCompartido(gasto);
+    return `
+        <label class="gasto-compartido-checkbox">
+            <input type="checkbox" ${gasto.esCompartido ? 'checked' : ''} onchange="toggleGastoCompartido(${index}, this.checked)">
+            ¿Es un gasto compartido?
+        </label>
+    `;
+}
+
 // Gastos
 // Función helper para calcular fecha fin basándose en fecha inicio y cuotas a pagar
 function calcularFechaFin(fechaInicio, cuotasAPagar) {
     if (!fechaInicio || !cuotasAPagar || cuotasAPagar <= 0) return '';
     
-    const fecha = new Date(fechaInicio);
+    const fecha = window.FinanceLogic.parseLocalDate(fechaInicio);
+    if (!fecha) return '';
+    const diaOriginal = fecha.getDate();
     fecha.setMonth(fecha.getMonth() + parseInt(cuotasAPagar));
     
     // Ajustar el día si el mes resultante no tiene ese día (ej: 31 de enero + 1 mes = 31 de febrero -> 28/29 de febrero)
-    const diaOriginal = fecha.getDate();
-    fecha.setMonth(fecha.getMonth());
     if (fecha.getDate() !== diaOriginal) {
         fecha.setDate(0); // Ir al último día del mes anterior
     }
     
-    return fecha.toISOString().split('T')[0];
+    const y = fecha.getFullYear();
+    const m = String(fecha.getMonth() + 1).padStart(2, '0');
+    const d = String(fecha.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
 }
 
 // Función helper para calcular cuotas pagadas basándose en fecha inicio y fecha actual
 function calcularCuotasPagadas(fechaInicio) {
-    if (!fechaInicio) return 0;
-    const today = new Date();
-    const start = new Date(fechaInicio);
-    const diffMeses = (today.getFullYear() - start.getFullYear()) * 12 + (today.getMonth() - start.getMonth());
-    return Math.max(0, diffMeses + 1);
+    return window.FinanceLogic.calcularCuotasPagadas(fechaInicio);
 }
 
 function renderGastos() {
@@ -416,6 +560,7 @@ function renderGastos() {
     
     renderGastosCuotas(gastosCuotas);
     renderGastosMensuales(gastosMensuales);
+    renderCuentasPorCobrar();
     
     updateDashboard();
 }
@@ -478,9 +623,11 @@ function renderGastosCuotas(gastosCuotas) {
             <td style="color: var(--text-secondary);">${fechaFinCalculada ? new Date(fechaFinCalculada).toLocaleDateString('es-AR') : '-'}</td>
             <td style="font-weight: 600;">$${Math.round(restanteARS).toLocaleString()}</td>
             <td style="font-weight: 600;">$${Math.round(total * factor).toLocaleString()}</td>
+            <td>${renderGastoCompartidoCheckbox(index, gasto)}</td>
             <td style="text-align: right;"><button class="btn-delete" onclick="removeGasto(${index})">✕</button></td>
         `;
         body.appendChild(tr);
+        body.insertAdjacentHTML('beforeend', renderGastoCompartidoFila(index, gasto, 10));
     });
 }
 
@@ -509,10 +656,38 @@ function renderGastosMensuales(gastosMensuales) {
                 </select>
             </td>
             <td><input type="number" value="${montoPorMes}" onchange="updateGasto(${index}, 'total', this.value)" placeholder="0"></td>
+            <td>${renderGastoCompartidoCheckbox(index, gasto)}</td>
             <td style="text-align: right;"><button class="btn-delete" onclick="removeGasto(${index})">✕</button></td>
         `;
         body.appendChild(tr);
+        body.insertAdjacentHTML('beforeend', renderGastoCompartidoFila(index, gasto, 5));
     });
+}
+
+function renderCuentasPorCobrar() {
+    const body = document.getElementById('cuentas-por-cobrar-body');
+    if (!body) return;
+    
+    const deudas = agruparDeudasTerceros();
+    if (deudas.length === 0) {
+        body.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No hay cuentas por cobrar registradas</td></tr>';
+        return;
+    }
+    
+    body.innerHTML = deudas.map(d => {
+        const arsTexto = d.ars > 0 ? `$${formatMontoARS(d.ars)}` : '—';
+        const usdTexto = d.usd > 0 ? `u$s ${d.usd.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
+        return `
+            <tr>
+                <td style="font-weight: 600;">${d.nombre.toUpperCase()}</td>
+                <td style="font-weight: 600;">${arsTexto}</td>
+                <td style="font-weight: 600;">${usdTexto}</td>
+                <td style="text-align: right;">
+                    <button class="btn-copy-reminder" data-nombre="${d.nombre}" data-ars="${d.ars}" data-usd="${d.usd}" onclick="copiarRecordatorioDesdeBtn(this)">Copiar Recordatorio</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function updateExchangeRate(value) {
@@ -540,7 +715,7 @@ function updateExchangeRate(value) {
 }
 
 function updateGasto(index, field, value) {
-    if (field === 'total') {
+    if (field === 'total' || field === 'montoTercero') {
         value = parseFloat(value) || 0;
         financeData.gastos[index][field] = value;
         // Si se actualiza el total y hay montoPorMes guardado, no hacer nada (mantener montoPorMes)
@@ -602,7 +777,10 @@ function addGastoCuota() {
         fechaInicio: '',
         fechaFin: '',
         moneda: 'ARS', 
-        esGastoMensual: false 
+        esGastoMensual: false,
+        esCompartido: false,
+        terceroNombre: '',
+        montoTercero: 0
     });
     renderGastos();
     saveData();
@@ -613,7 +791,10 @@ function addGastoMensual() {
         nombre: '', 
         total: 0, 
         moneda: 'ARS', 
-        esGastoMensual: true 
+        esGastoMensual: true,
+        esCompartido: false,
+        terceroNombre: '',
+        montoTercero: 0
     });
     renderGastos();
     saveData();
@@ -1365,6 +1546,44 @@ async function actualizarDolarOficial() {
 }
 
 // Dashboard update
+function sincronizarDatosActivos() {
+    const tcGastos = document.getElementById('input-tipo-cambio');
+    if (tcGastos && tcGastos.value !== '') {
+        financeData.tipoCambio = parseFloat(tcGastos.value) || financeData.tipoCambio || 1450;
+    }
+
+    if (financeData.sueldo) {
+        if (financeData.sueldo.sueldoNetoDirecto) {
+            const netoInput = document.getElementById('input-sueldo-neto-directo');
+            if (netoInput && netoInput.value !== '') {
+                financeData.sueldo.netoDirecto = parseFloat(netoInput.value) || 0;
+            }
+        } else {
+            const brutoInput = document.getElementById('input-sueldo-bruto');
+            if (brutoInput && brutoInput.value !== '') {
+                financeData.sueldo.bruto = parseFloat(brutoInput.value) || 0;
+            }
+        }
+    }
+}
+
+function refrescarDashboard() {
+    sincronizarDatosActivos();
+    updateDashboard();
+    localStorage.setItem('financeData', JSON.stringify(financeData));
+
+    const btn = document.getElementById('btn-refrescar-dashboard');
+    if (btn) {
+        const original = btn.innerHTML;
+        btn.innerHTML = '✓ Actualizado';
+        btn.classList.add('refreshed');
+        setTimeout(() => {
+            btn.innerHTML = original;
+            btn.classList.remove('refreshed');
+        }, 1800);
+    }
+}
+
 function updateDashboard() {
     // Profile info removed from header
 
@@ -1450,36 +1669,59 @@ function updateDashboard() {
 
     document.getElementById('summary-total-gastos').innerText = `$${Math.round(totalGastosARS).toLocaleString()}`;
     document.getElementById('summary-ingresos').innerText = `$${Math.round(totalIngresos).toLocaleString()}`;
-    document.getElementById('summary-saldo-actual').innerText = `$${Math.round(sueldoNeto - totalGastosARS).toLocaleString()}`;
 
-    // Calcular gastos anuales (solo primeras 12 cuotas de cada gasto en cuotas)
-    let totalGastosAnualARS = 0;
-    financeData.gastos.forEach(d => {
-        const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
-        if (d.esGastoMensual) {
-            // Para gastos mensuales, sumar 12 meses
-            totalGastosAnualARS += (d.total * 12) * factor;
+    const recuperar = calcularRecuperarTerceros();
+    const gastoRealPropio = totalGastosARS - recuperar.totalARSCompleto;
+    // Usar ingresos del mes (incluye extras como aguinaldo), no solo el sueldo base
+    const saldoActual = totalIngresos - gastoRealPropio;
+
+    document.getElementById('summary-recuperar-terceros').innerText = `$${Math.round(recuperar.totalARSCompleto).toLocaleString()}`;
+    const recuperarUsdEl = document.getElementById('summary-recuperar-terceros-usd');
+    if (recuperarUsdEl) {
+        if (recuperar.totalUSD > 0) {
+            recuperarUsdEl.style.display = 'block';
+            recuperarUsdEl.textContent = `Incluye u$s ${recuperar.totalUSD.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         } else {
-            // Para gastos en cuotas, sumar solo las primeras 12 cuotas
-            const cuotasAPagar = d.cuotasAPagar || 0;
-            let montoPorMes = d.montoPorMes;
-            if (!montoPorMes || montoPorMes === 0) {
-                montoPorMes = cuotasAPagar > 0 ? (d.total / cuotasAPagar) : 0;
-            }
-            // Si tiene 12 cuotas o menos, sumar el total completo
-            // Si tiene más de 12 cuotas, solo sumar las primeras 12
-            const cuotasParaAnual = Math.min(cuotasAPagar, 12);
-            totalGastosAnualARS += (montoPorMes * cuotasParaAnual) * factor;
+            recuperarUsdEl.style.display = 'none';
+            recuperarUsdEl.textContent = '';
         }
+    }
+    document.getElementById('summary-saldo-actual').innerText = `$${Math.round(saldoActual).toLocaleString()}`;
+
+    // Gastos anuales: solo gastos en cuotas (no proyectar mensuales × 12 en esta tarjeta)
+    let totalGastosCuotasAnualARS = 0;
+    financeData.gastos.forEach(d => {
+        if (d.esGastoMensual) return;
+        const factor = (d.moneda === 'USD') ? (financeData.tipoCambio || 1450) : 1;
+        const cuotasAPagar = d.cuotasAPagar || 0;
+        let montoPorMes = d.montoPorMes;
+        if (!montoPorMes || montoPorMes === 0) {
+            montoPorMes = cuotasAPagar > 0 ? (d.total / cuotasAPagar) : 0;
+        }
+        const cuotasParaAnual = Math.min(cuotasAPagar, 12);
+        totalGastosCuotasAnualARS += (montoPorMes * cuotasParaAnual) * factor;
     });
 
-    // Calcular ingreso anual (sueldo neto * 12)
-    const ingresoAnual = sueldoNeto * 12;
+    // Ingreso anual: sueldo recurrente × 12 (+ aguinaldos/extras si están como ítems separados)
+    let ingresoAnual = sueldoNeto * 12;
+    if (financeData.sueldo.items) {
+        financeData.sueldo.items.filter(i => i.categoria === 'ingreso').forEach(item => {
+            const valor = Math.abs(parseFloat(item.monto) || 0);
+            if (item.tipo !== 'monto' || valor <= 0) return;
+            const nombre = (item.nombre || '').toLowerCase();
+            if (nombre.includes('aguinaldo') || nombre.includes('sac')) {
+                ingresoAnual += valor;
+            } else if (!financeData.sueldo.sueldoNetoDirecto) {
+                ingresoAnual += valor * 12;
+            }
+        });
+    }
 
-    // Calcular saldo total después de resto anual
-    const saldoAnual = ingresoAnual - totalGastosAnualARS;
+    // Proyección anual de bolsillo: mismo criterio que Saldo Actual, proyectado a 12 meses
+    const gastosAnualesNetosBolsillo = gastoRealPropio * 12;
+    const saldoAnual = ingresoAnual - gastosAnualesNetosBolsillo;
 
-    document.getElementById('summary-gastos-anual').innerText = `$${Math.round(totalGastosAnualARS).toLocaleString()}`;
+    document.getElementById('summary-gastos-anual').innerText = `$${Math.round(totalGastosCuotasAnualARS).toLocaleString()}`;
     document.getElementById('summary-ingreso-anual').innerText = `$${Math.round(ingresoAnual).toLocaleString()}`;
     document.getElementById('summary-saldo-anual').innerText = `$${Math.round(saldoAnual).toLocaleString()}`;
 
@@ -1615,9 +1857,15 @@ function updateDashboard() {
     }
     
     ingresosDash.innerHTML = ingresosHTML;
+
+    renderCuentasPorCobrar();
 }
 
 // Import/Export
+function parseExcelBool(value) {
+    return window.FinanceLogic.parseExcelBool(value);
+}
+
 function exportJSON() {
     const dataStr = JSON.stringify(financeData, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
@@ -1640,6 +1888,9 @@ function handleFileImport(event) {
         try {
             const imported = JSON.parse(e.target.result);
             financeData = imported;
+            if (financeData.gastos) {
+                financeData.gastos.forEach(g => normalizarGastoCompartido(g));
+            }
             saveData();
             renderAll();
             alert('Datos importados correctamente');
@@ -1751,10 +2002,14 @@ function importExcel() {
                                 fechaInicio: fechaInicio || '',
                                 fechaFin: fechaFinCalculada || '',
                                 moneda: row.Moneda || row.moneda || 'ARS',
-                                esGastoMensual: row['Gasto Mensual'] || row.esGastoMensual || false
+                                esGastoMensual: parseExcelBool(row['Gasto Mensual'] ?? row.esGastoMensual),
+                                esCompartido: parseExcelBool(row['Gasto Compartido'] ?? row.esCompartido),
+                                terceroNombre: row['Tercero'] || row.terceroNombre || row['Nombre Tercero'] || '',
+                                montoTercero: parseFloat(row['Monto Tercero'] || row.montoTercero || row['Monto a Recuperar'] || 0)
                             };
                         })
                         .filter(gasto => gasto.nombre !== ''); // Eliminar gastos sin nombre
+                    financeData.gastos.forEach(g => normalizarGastoCompartido(g));
                 }
 
                 // Importar Cuotas
@@ -1843,7 +2098,10 @@ function exportExcel() {
                 'Inicio a pagar': gasto.fechaInicio || '',
                 'Fecha Fin': gasto.fechaFin || '',
                 Moneda: gasto.moneda || 'ARS',
-                'Gasto Mensual': gasto.esGastoMensual || false
+                'Gasto Mensual': gasto.esGastoMensual || false,
+                'Gasto Compartido': gasto.esCompartido || false,
+                'Tercero': gasto.terceroNombre || '',
+                'Monto Tercero': gasto.montoTercero || 0
             }))
         );
         XLSX.utils.book_append_sheet(wb, gastosWS, "Deudas");
@@ -1856,7 +2114,10 @@ function exportExcel() {
             'Inicio a pagar': '',
             'Fecha Fin': '',
             Moneda: 'ARS',
-            'Gasto Mensual': false
+            'Gasto Mensual': false,
+            'Gasto Compartido': false,
+            'Tercero': '',
+            'Monto Tercero': 0
         }]);
         XLSX.utils.book_append_sheet(wb, gastosWS, "Deudas");
     }
